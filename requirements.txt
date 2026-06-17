@@ -1,8 +1,6 @@
 streamlit
 pandas
 sqlalchemy
-pyodbc
-python-dotenv
-bcrypt
+pymssql
 plotly
-python-docx
+bcrypt
