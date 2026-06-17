@@ -1,32 +1,39 @@
 import os
-from dotenv import load_dotenv
+import streamlit as st
 from sqlalchemy import create_engine, text
-from urllib.parse import quote_plus
 
-load_dotenv()
 
-DB_SERVER = os.getenv("DB_SERVER")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_DRIVER = os.getenv("DB_DRIVER", "ODBC Driver 18 for SQL Server")
+def _get_secret(key, default=None):
+    # 1. Intenta leer de Streamlit Secrets (nube)
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
 
+    # 2. Si no, lee de variables de entorno (local)
+    return os.getenv(key, default)
+
+
+DB_SERVER = _get_secret("DB_SERVER")
+DB_NAME = _get_secret("DB_NAME")
+DB_USER = _get_secret("DB_USER")
+DB_PASSWORD = _get_secret("DB_PASSWORD")
+
+
+@st.cache_resource
 def get_engine():
-    connection_string = (
-        f"DRIVER={DB_DRIVER};"
-        f"SERVER={DB_SERVER};"
-        f"DATABASE={DB_NAME};"
-        f"UID={DB_USER};"
-        f"PWD={DB_PASSWORD};"
-        f"Encrypt=yes;"
-        f"TrustServerCertificate=no;"
-        f"Connection Timeout=30;"
+    # pymssql NO necesita ODBC Driver instalado en el sistema
+    engine = create_engine(
+        f"mssql+pymssql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}:1433/{DB_NAME}",
+        pool_pre_ping=True,
     )
-    params = quote_plus(connection_string)
-    return create_engine(f"mssql+pyodbc:///?odbc_connect={params}", pool_pre_ping=True)
+    return engine
+
 
 def test_connection():
     engine = get_engine()
-    with engine.connect() as conn:
-        return conn.execute(text("SELECT 1 AS test")).fetchone()
 
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT 1 AS test"))
+        return result.fetchone()
