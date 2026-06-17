@@ -3,14 +3,19 @@ from sqlalchemy import text
 from src.db import get_engine
 
 
-def read_dataframe(query, params=None):
+def read_dataframe(query: str, params: dict | None = None) -> pd.DataFrame:
+    """Ejecuta un SELECT y devuelve un DataFrame."""
     engine = get_engine()
+
     with engine.connect() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
 
 
-def execute_statement(statement, params=None):
+def execute_statement(statement: str, params: dict | None = None) -> None:
+    """Ejecuta un INSERT/UPDATE/DELETE y confirma la transacción."""
+    # engine.begin() abre una transacción y hace commit automático al salir
     engine = get_engine()
+
     with engine.begin() as conn:
         conn.execute(text(statement), params or {})
 
@@ -83,21 +88,55 @@ def get_movimientos():
     return read_dataframe('SELECT * FROM vw_movimientos ORDER BY fecha_movimiento DESC')
 
 
-def insert_producto(sku, nombre_producto, descripcion, id_categoria, id_unidad, stock_minimo, stock_maximo, requiere_lote):
-    query = text('''
-        INSERT INTO productos (sku, nombre_producto, descripcion, id_categoria, id_unidad, stock_minimo, stock_maximo, requiere_lote)
-        VALUES (:sku, :nombre_producto, :descripcion, :id_categoria, :id_unidad, :stock_minimo, :stock_maximo, :requiere_lote)
-    ''')
+def insert_producto(
+    sku,
+    nombre,
+    descripcion,
+    id_categoria,
+    id_unidad,
+    stock_minimo,
+    stock_maximo,
+    requiere_lote,
+):
+    """Inserta un nuevo producto."""
+    query = """
+    INSERT INTO productos
+        (
+            sku,
+            nombre,
+            descripcion,
+            id_categoria,
+            id_unidad,
+            stock_minimo,
+            stock_maximo,
+            requiere_lote,
+            activo
+        )
+    VALUES
+        (
+            :sku,
+            :nombre,
+            :descripcion,
+            :id_categoria,
+            :id_unidad,
+            :stock_minimo,
+            :stock_maximo,
+            :requiere_lote,
+            1
+        )
+    """  # Sin coma al final: debe ser un string, no una tupla
+
     params = {
-        'sku': sku,
-        'nombre_producto': nombre_producto,
-        'descripcion': descripcion,
-        'id_categoria': id_categoria,
-        'id_unidad': id_unidad,
-        'stock_minimo': stock_minimo,
-        'stock_maximo': stock_maximo,
-        'requiere_lote': requiere_lote,
+        "sku": sku,
+        "nombre": nombre,
+        "descripcion": descripcion,
+        "id_categoria": id_categoria,
+        "id_unidad": id_unidad,
+        "stock_minimo": stock_minimo,
+        "stock_maximo": stock_maximo,
+        "requiere_lote": requiere_lote,
     }
+
     execute_statement(query, params)
 
 
