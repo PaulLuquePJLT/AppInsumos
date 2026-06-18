@@ -43,7 +43,8 @@ GO
 CREATE TABLE unidades_medida (
     id_unidad INT IDENTITY(1,1) PRIMARY KEY,
     codigo_unidad NVARCHAR(20) NOT NULL UNIQUE,
-    nombre_unidad NVARCHAR(50) NOT NULL
+    nombre_unidad NVARCHAR(50) NOT NULL,
+    activo BIT NOT NULL DEFAULT 1
 );
 GO
 
