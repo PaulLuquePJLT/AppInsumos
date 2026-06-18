@@ -1,5 +1,5 @@
 import streamlit as st
-
+from src.session import current_user_id
 from src.queries import get_productos_activos, get_ubicaciones
 from src.movimientos import registrar_entrada
 
@@ -44,7 +44,7 @@ if submitted:
             id_producto=id_producto,
             id_ubicacion_destino=id_ubicacion,
             cantidad=cantidad,
-            id_usuario=1,
+            id_usuario=current_user_id(),
             referencia=referencia,
             observacion=observacion,
             lote=lote or None,
