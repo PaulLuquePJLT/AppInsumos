@@ -1,4 +1,5 @@
 import streamlit as st
+from src.session import current_user_id
 
 from src.queries import (
     get_productos_activos,
@@ -76,7 +77,7 @@ if submitted:
             id_ubicacion_origen=int(row_stock["id_ubicacion"]),
             id_cuenta=int(row_cuenta["id_cuenta"]),
             cantidad=cantidad,
-            id_usuario=1,
+            id_usuario=current_user_id(),
             referencia=referencia,
             observacion=observacion,
             lote=normalizar_lote(row_stock["lote"]),
