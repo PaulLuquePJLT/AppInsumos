@@ -8,7 +8,7 @@ from src.auth_views import render_login_page
 
 st.set_page_config(
     page_title="AppInsumos",
-    page_icon="https://postimg.cc/LgHQMh9z",
+    page_icon="https://i.postimg.cc/Vvtxnb2H/android-chrome-512x512-(1).png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
