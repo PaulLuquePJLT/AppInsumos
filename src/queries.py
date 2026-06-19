@@ -94,7 +94,9 @@ def get_stock_general():
             nombre_unidad,
             stock_minimo,
             stock_maximo,
-            cantidad_total
+            cantidad_total,
+            ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_disponible, cantidad_total) AS cantidad_disponible
         FROM dbo.vw_stock_general
         ORDER BY nombre_producto
     """)
@@ -110,13 +112,19 @@ def get_stock_por_ubicacion():
             nombre_unidad,
             codigo_zona,
             nombre_zona,
+            id_ubicacion,
             codigo_ubicacion,
             tipo_ubicacion,
+            ISNULL(secuencia, 999999) AS secuencia,
+            ISNULL(es_surtible, 1) AS es_surtible,
+            ISNULL(es_stage, 0) AS es_stage,
             lote,
             cantidad_actual,
+            ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_disponible, cantidad_actual) AS cantidad_disponible,
             fecha_actualizacion
         FROM dbo.vw_stock_por_ubicacion
-        ORDER BY nombre_producto, codigo_ubicacion
+        ORDER BY nombre_producto, secuencia, codigo_ubicacion
     """)
 
 
@@ -485,11 +493,14 @@ def get_ubicaciones():
             ub.nivel,
             ub.posicion,
             ub.capacidad_maxima,
+            ISNULL(ub.secuencia, 999999) AS secuencia,
+            ISNULL(ub.es_surtible, 1) AS es_surtible,
+            ISNULL(ub.es_stage, 0) AS es_stage,
             ub.activo
         FROM ubicaciones ub
         INNER JOIN zonas_almacen z ON z.id_zona = ub.id_zona
         WHERE ub.activo = 1
-        ORDER BY ub.codigo_ubicacion
+        ORDER BY ISNULL(ub.secuencia, 999999), ub.codigo_ubicacion
     """)
 
 
@@ -507,10 +518,13 @@ def get_ubicaciones_todas():
             ub.nivel,
             ub.posicion,
             ub.capacidad_maxima,
+            ISNULL(ub.secuencia, 999999) AS secuencia,
+            ISNULL(ub.es_surtible, 1) AS es_surtible,
+            ISNULL(ub.es_stage, 0) AS es_stage,
             ub.activo
         FROM ubicaciones ub
         INNER JOIN zonas_almacen z ON z.id_zona = ub.id_zona
-        ORDER BY ub.activo DESC, ub.codigo_ubicacion
+        ORDER BY ub.activo DESC, ISNULL(ub.secuencia, 999999), ub.codigo_ubicacion
     """)
 
 
@@ -523,6 +537,9 @@ def insert_ubicacion(
     nivel,
     posicion,
     capacidad_maxima,
+    secuencia=999999,
+    es_surtible=1,
+    es_stage=0,
 ):
     execute_statement(
         """
@@ -536,6 +553,9 @@ def insert_ubicacion(
                 nivel,
                 posicion,
                 capacidad_maxima,
+                secuencia,
+                es_surtible,
+                es_stage,
                 activo
             )
         VALUES
@@ -548,6 +568,9 @@ def insert_ubicacion(
                 :nivel,
                 :posicion,
                 :capacidad_maxima,
+                :secuencia,
+                :es_surtible,
+                :es_stage,
                 1
             )
         """,
@@ -560,6 +583,9 @@ def insert_ubicacion(
             "nivel": clean_text(nivel),
             "posicion": clean_text(posicion),
             "capacidad_maxima": clean_float(capacidad_maxima, None),
+            "secuencia": int(clean_float(secuencia, 999999)),
+            "es_surtible": clean_bool(es_surtible),
+            "es_stage": clean_bool(es_stage),
         },
     )
 
@@ -574,6 +600,9 @@ def update_ubicacion(
     nivel,
     posicion,
     capacidad_maxima,
+    secuencia=999999,
+    es_surtible=1,
+    es_stage=0,
     activo=1,
 ):
     execute_statement(
@@ -587,6 +616,9 @@ def update_ubicacion(
             nivel = :nivel,
             posicion = :posicion,
             capacidad_maxima = :capacidad_maxima,
+            secuencia = :secuencia,
+            es_surtible = :es_surtible,
+            es_stage = :es_stage,
             activo = :activo
         WHERE id_ubicacion = :id_ubicacion
         """,
@@ -600,6 +632,9 @@ def update_ubicacion(
             "nivel": clean_text(nivel),
             "posicion": clean_text(posicion),
             "capacidad_maxima": clean_float(capacidad_maxima, None),
+            "secuencia": int(clean_float(secuencia, 999999)),
+            "es_surtible": clean_bool(es_surtible),
+            "es_stage": clean_bool(es_stage),
             "activo": clean_bool(activo),
         },
     )
@@ -629,6 +664,9 @@ def bulk_insert_ubicaciones(rows: list[dict]):
                 nivel,
                 posicion,
                 capacidad_maxima,
+                secuencia,
+                es_surtible,
+                es_stage,
                 activo
             )
         VALUES
@@ -641,6 +679,9 @@ def bulk_insert_ubicaciones(rows: list[dict]):
                 :nivel,
                 :posicion,
                 :capacidad_maxima,
+                :secuencia,
+                :es_surtible,
+                :es_stage,
                 1
             )
         """,
@@ -1176,3 +1217,265 @@ def bulk_insert_proveedores(rows: list[dict]):
         """,
         rows,
     )
+
+
+# ---------------------------------------------------------------------------
+# Pedidos, Picking y Transferencias masivas
+# ---------------------------------------------------------------------------
+
+def get_next_pedido_number():
+    value = read_dataframe("""
+        SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(nro_pedido, 2, 9) AS INT)), 0) + 1 AS next_number
+        FROM pedidos
+        WHERE nro_pedido LIKE 'P[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+    """)
+    next_number = int(value["next_number"].iloc[0]) if not value.empty else 1
+    return f"P{next_number:09d}"
+
+
+def get_next_picking_number():
+    value = read_dataframe("""
+        SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(nro_picking, 3, 9) AS INT)), 0) + 1 AS next_number
+        FROM picking_header
+        WHERE nro_picking LIKE 'PK[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+    """)
+    next_number = int(value["next_number"].iloc[0]) if not value.empty else 1
+    return f"PK{next_number:09d}"
+
+
+def get_pedidos_resumen(solo_hoy: bool = False, solo_creados: bool = False):
+    where = []
+    if solo_hoy:
+        where.append("fecha_pedido = CAST(SYSDATETIME() AS DATE)")
+    if solo_creados:
+        where.append("estado = 'CREADO'")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    return read_dataframe(f"""
+        SELECT
+            id_pedido,
+            nro_pedido,
+            fecha_pedido,
+            fecha_esperada_atencion,
+            id_cuenta,
+            codigo_cuenta,
+            nombre_cuenta,
+            solicitante,
+            responsable_cuenta,
+            texto_cabecera,
+            qty_total,
+            estado,
+            lineas,
+            cantidad_pendiente_picking,
+            cantidad_pendiente_atencion
+        FROM dbo.vw_pedidos_resumen
+        {where_sql}
+        ORDER BY fecha_pedido DESC, nro_pedido DESC
+    """)
+
+
+def get_pedidos_pendientes_detalle(solo_hoy: bool = True):
+    date_filter = "AND p.fecha_pedido = CAST(SYSDATETIME() AS DATE)" if solo_hoy else ""
+    return read_dataframe(f"""
+        SELECT
+            p.id_pedido,
+            p.nro_pedido,
+            p.fecha_pedido,
+            p.fecha_esperada_atencion,
+            p.estado AS estado_pedido,
+            c.id_cuenta,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.solicitante,
+            pd.id_pedido_detalle,
+            pd.nro_linea,
+            pr.id_producto,
+            pr.sku,
+            pr.nombre_producto,
+            pd.codigo_unidad,
+            pd.cantidad_pedida,
+            pd.cantidad_asignada,
+            pd.cantidad_atendida,
+            pd.cantidad_cancelada,
+            CAST(pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada AS DECIMAL(18,2)) AS cantidad_pendiente_picking,
+            pd.texto_item,
+            pd.estado AS estado_detalle
+        FROM pedidos p
+        INNER JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
+        INNER JOIN productos pr ON pr.id_producto = pd.id_producto
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
+        WHERE p.estado = 'CREADO'
+          AND pd.estado = 'PENDIENTE'
+          AND (pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada) > 0
+          {date_filter}
+        ORDER BY p.fecha_pedido DESC, p.nro_pedido, pd.nro_linea
+    """)
+
+
+def get_pedido_detalle(id_pedido: int):
+    return read_dataframe(
+        """
+        SELECT
+            pd.id_pedido_detalle,
+            pd.id_pedido,
+            pd.nro_linea,
+            p.sku,
+            p.nombre_producto,
+            pd.codigo_unidad,
+            pd.cantidad_pedida,
+            pd.cantidad_asignada,
+            pd.cantidad_atendida,
+            pd.cantidad_cancelada,
+            pd.texto_item,
+            pd.estado
+        FROM pedido_detalle pd
+        INNER JOIN productos p ON p.id_producto = pd.id_producto
+        WHERE pd.id_pedido = :id_pedido
+        ORDER BY pd.nro_linea
+        """,
+        {"id_pedido": int(id_pedido)},
+    )
+
+
+def get_pickings_resumen():
+    return read_dataframe("""
+        SELECT
+            id_picking,
+            nro_picking,
+            fecha_creacion,
+            estado,
+            qty_total,
+            qty_asignada,
+            qty_corto,
+            pedidos,
+            tareas_pendientes,
+            cortos_activos,
+            cortos_cancelados,
+            tareas_completadas
+        FROM dbo.vw_picking_resumen
+        ORDER BY fecha_creacion DESC, nro_picking DESC
+    """)
+
+
+def get_picking_detalle(id_picking: int | None = None):
+    where = "WHERE pd.id_picking = :id_picking" if id_picking else ""
+    params = {"id_picking": int(id_picking)} if id_picking else {}
+    return read_dataframe(
+        f"""
+        SELECT
+            pd.id_picking_detalle,
+            ph.nro_picking,
+            ph.estado AS estado_picking,
+            pd.nro_pedido,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.sku,
+            p.nombre_producto,
+            um.codigo_unidad,
+            ub.codigo_ubicacion AS ubicacion_origen,
+            pd.lote,
+            pd.cantidad_solicitada,
+            pd.cantidad_asignada,
+            pd.cantidad_atendida,
+            pd.cantidad_cancelada,
+            pd.estado,
+            pd.secuencia,
+            pd.texto_item,
+            pd.fecha_creacion
+        FROM picking_detalle pd
+        INNER JOIN picking_header ph ON ph.id_picking = pd.id_picking
+        INNER JOIN productos p ON p.id_producto = pd.id_producto
+        INNER JOIN unidades_medida um ON um.id_unidad = p.id_unidad
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
+        LEFT JOIN ubicaciones ub ON ub.id_ubicacion = pd.id_ubicacion_origen
+        {where}
+        ORDER BY ph.fecha_creacion DESC, ph.nro_picking DESC, pd.secuencia, pd.nro_pedido, p.sku
+        """,
+        params,
+    )
+
+
+def get_picking_cortos(activos_only: bool = True):
+    estado_filter = "AND pd.estado = 'CORTO'" if activos_only else "AND pd.estado IN ('CORTO','CANCELADO','REASIGNADO')"
+    return read_dataframe(f"""
+        SELECT
+            pd.id_picking_detalle,
+            pd.id_picking,
+            ph.nro_picking,
+            ph.estado AS estado_picking,
+            pd.id_pedido,
+            pd.nro_pedido,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.sku,
+            p.nombre_producto,
+            um.codigo_unidad,
+            pd.cantidad_solicitada AS cantidad_corta,
+            pd.estado,
+            pd.texto_item,
+            pd.fecha_creacion
+        FROM picking_detalle pd
+        INNER JOIN picking_header ph ON ph.id_picking = pd.id_picking
+        INNER JOIN productos p ON p.id_producto = pd.id_producto
+        INNER JOIN unidades_medida um ON um.id_unidad = p.id_unidad
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
+        WHERE 1 = 1
+          {estado_filter}
+        ORDER BY ph.fecha_creacion DESC, ph.nro_picking DESC, p.sku
+    """)
+
+
+def get_tareas_picking_pendientes():
+    return read_dataframe("""
+        SELECT
+            CAST(0 AS BIT) AS seleccionar,
+            pd.id_picking_detalle,
+            pd.id_picking,
+            ph.nro_picking,
+            ph.estado AS estado_picking,
+            pd.nro_pedido,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.sku,
+            p.nombre_producto,
+            um.codigo_unidad,
+            ub.codigo_ubicacion AS ubicacion_origen,
+            pd.lote,
+            pd.cantidad_asignada,
+            pd.secuencia,
+            pd.texto_item,
+            pd.fecha_creacion
+        FROM picking_detalle pd
+        INNER JOIN picking_header ph ON ph.id_picking = pd.id_picking
+        INNER JOIN productos p ON p.id_producto = pd.id_producto
+        INNER JOIN unidades_medida um ON um.id_unidad = p.id_unidad
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
+        INNER JOIN ubicaciones ub ON ub.id_ubicacion = pd.id_ubicacion_origen
+        WHERE pd.estado = 'LIBERADO'
+          AND ph.estado IN ('LIBERADO','LIBERADO-CORTO','COMPLETADO-PARCIAL')
+        ORDER BY pd.secuencia, ub.codigo_ubicacion, ph.nro_picking, pd.nro_pedido, p.sku
+    """)
+
+
+def get_stock_para_transferencia():
+    return read_dataframe("""
+        SELECT
+            su.id_stock_ubicacion,
+            p.id_producto,
+            p.sku,
+            p.nombre_producto,
+            um.codigo_unidad,
+            ub.id_ubicacion,
+            ub.codigo_ubicacion,
+            su.lote,
+            su.cantidad_actual,
+            ISNULL(su.cantidad_en_picking, 0) AS cantidad_en_picking,
+            CAST(su.cantidad_actual - ISNULL(su.cantidad_en_picking, 0) AS DECIMAL(18,2)) AS cantidad_disponible
+        FROM stock_ubicacion su
+        INNER JOIN productos p ON p.id_producto = su.id_producto
+        INNER JOIN unidades_medida um ON um.id_unidad = p.id_unidad
+        INNER JOIN ubicaciones ub ON ub.id_ubicacion = su.id_ubicacion
+        WHERE p.activo = 1
+          AND ub.activo = 1
+          AND su.cantidad_actual > 0
+        ORDER BY p.sku, ub.codigo_ubicacion, su.lote
+    """)
