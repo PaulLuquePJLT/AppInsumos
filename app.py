@@ -7,7 +7,7 @@ from src.auth_views import render_login_page
 
 
 st.set_page_config(
-    page_title="App WMS Insumos",
+    page_title="AppInsumos",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
