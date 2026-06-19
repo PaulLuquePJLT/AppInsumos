@@ -23,11 +23,13 @@ BEGIN
     ADD es_stage BIT NOT NULL CONSTRAINT DF_ubicaciones_es_stage DEFAULT 0;
 END;
 
+EXEC(N'
 UPDATE dbo.ubicaciones
 SET es_stage = 1,
     es_surtible = 0,
     secuencia = CASE WHEN secuencia = 999999 THEN 0 ELSE secuencia END
-WHERE codigo_ubicacion IN ('B1.RE.01');
+WHERE codigo_ubicacion IN (''B1.RE.01'');
+');
 
 /* 2) Stock: cantidad reservada/en picking */
 IF COL_LENGTH('dbo.stock_ubicacion', 'cantidad_en_picking') IS NULL
