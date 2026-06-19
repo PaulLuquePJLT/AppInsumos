@@ -940,3 +940,207 @@ def bulk_insert_unidades(rows: list[dict]):
         """,
         rows,
     )
+
+# ---------------------------------------------------------------------------
+# Proveedores
+# ---------------------------------------------------------------------------
+
+def get_proveedores():
+    return read_dataframe("""
+        SELECT
+            id_proveedor,
+            ruc,
+            razon_social,
+            rubro_proveedor,
+            contacto,
+            nro_telefono,
+            correo,
+            direccion,
+            pais,
+            ciudad,
+            estado,
+            activo,
+            fecha_creacion,
+            fecha_actualizacion
+        FROM proveedores
+        WHERE activo = 1
+          AND estado <> 'INACTIVO'
+        ORDER BY razon_social
+    """)
+
+
+def get_proveedores_todos():
+    return read_dataframe("""
+        SELECT
+            id_proveedor,
+            ruc,
+            razon_social,
+            rubro_proveedor,
+            contacto,
+            nro_telefono,
+            correo,
+            direccion,
+            pais,
+            ciudad,
+            estado,
+            activo,
+            fecha_creacion,
+            fecha_actualizacion
+        FROM proveedores
+        ORDER BY activo DESC, razon_social
+    """)
+
+
+def insert_proveedor(
+    ruc,
+    razon_social,
+    rubro_proveedor,
+    contacto,
+    nro_telefono,
+    correo,
+    direccion,
+    pais,
+    ciudad,
+    estado="ACTIVO",
+):
+    execute_statement(
+        """
+        INSERT INTO proveedores
+            (
+                ruc,
+                razon_social,
+                rubro_proveedor,
+                contacto,
+                nro_telefono,
+                correo,
+                direccion,
+                pais,
+                ciudad,
+                estado,
+                activo
+            )
+        VALUES
+            (
+                :ruc,
+                :razon_social,
+                :rubro_proveedor,
+                :contacto,
+                :nro_telefono,
+                :correo,
+                :direccion,
+                :pais,
+                :ciudad,
+                :estado,
+                CASE WHEN :estado = 'INACTIVO' THEN 0 ELSE 1 END
+            )
+        """,
+        {
+            "ruc": clean_upper(ruc),
+            "razon_social": clean_text(razon_social),
+            "rubro_proveedor": clean_text(rubro_proveedor),
+            "contacto": clean_text(contacto),
+            "nro_telefono": clean_text(nro_telefono),
+            "correo": clean_text(correo).lower(),
+            "direccion": clean_text(direccion),
+            "pais": clean_text(pais),
+            "ciudad": clean_text(ciudad),
+            "estado": clean_upper(estado or "ACTIVO"),
+        },
+    )
+
+
+def update_proveedor(
+    id_proveedor,
+    ruc,
+    razon_social,
+    rubro_proveedor,
+    contacto,
+    nro_telefono,
+    correo,
+    direccion,
+    pais,
+    ciudad,
+    estado="ACTIVO",
+    activo=1,
+):
+    execute_statement(
+        """
+        UPDATE proveedores
+        SET ruc = :ruc,
+            razon_social = :razon_social,
+            rubro_proveedor = :rubro_proveedor,
+            contacto = :contacto,
+            nro_telefono = :nro_telefono,
+            correo = :correo,
+            direccion = :direccion,
+            pais = :pais,
+            ciudad = :ciudad,
+            estado = :estado,
+            activo = :activo,
+            fecha_actualizacion = SYSDATETIME()
+        WHERE id_proveedor = :id_proveedor
+        """,
+        {
+            "id_proveedor": int(id_proveedor),
+            "ruc": clean_upper(ruc),
+            "razon_social": clean_text(razon_social),
+            "rubro_proveedor": clean_text(rubro_proveedor),
+            "contacto": clean_text(contacto),
+            "nro_telefono": clean_text(nro_telefono),
+            "correo": clean_text(correo).lower(),
+            "direccion": clean_text(direccion),
+            "pais": clean_text(pais),
+            "ciudad": clean_text(ciudad),
+            "estado": clean_upper(estado or "ACTIVO"),
+            "activo": clean_bool(activo),
+        },
+    )
+
+
+def delete_proveedor(id_proveedor):
+    execute_statement(
+        """
+        UPDATE proveedores
+        SET activo = 0,
+            estado = 'INACTIVO',
+            fecha_actualizacion = SYSDATETIME()
+        WHERE id_proveedor = :id_proveedor
+        """,
+        {"id_proveedor": int(id_proveedor)},
+    )
+
+
+def bulk_insert_proveedores(rows: list[dict]):
+    execute_many(
+        """
+        INSERT INTO proveedores
+            (
+                ruc,
+                razon_social,
+                rubro_proveedor,
+                contacto,
+                nro_telefono,
+                correo,
+                direccion,
+                pais,
+                ciudad,
+                estado,
+                activo
+            )
+        VALUES
+            (
+                :ruc,
+                :razon_social,
+                :rubro_proveedor,
+                :contacto,
+                :nro_telefono,
+                :correo,
+                :direccion,
+                :pais,
+                :ciudad,
+                :estado,
+                CASE WHEN :estado = 'INACTIVO' THEN 0 ELSE 1 END
+            )
+        """,
+        rows,
+    )
