@@ -98,6 +98,7 @@ if is_admin:
     pages["Maestros"] = [
         st.Page("pages/02_Productos.py", title="Productos", icon="🧾"),
         st.Page("pages/03_Ubicaciones.py", title="Ubicaciones", icon="📍"),
+        st.Page("pages/13_Proveedores.py", title="Proveedores", icon="🚚"),
         st.Page("pages/10_Areas_Logisticas.py", title="Áreas Logísticas", icon="🏢"),
         st.Page(
             "pages/11_Categorias_Unidades.py",
