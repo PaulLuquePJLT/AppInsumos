@@ -8,7 +8,7 @@ from src.auth_views import render_login_page
 
 st.set_page_config(
     page_title="AppInsumos",
-    page_icon="blob:https://favicon.im/a182454e-d9e1-4208-add7-0f556a0f8eaa",
+    page_icon="https://postimg.cc/LgHQMh9z",
     layout="wide",
     initial_sidebar_state="expanded",
 )
