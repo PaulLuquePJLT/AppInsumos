@@ -113,6 +113,9 @@ pages["Ingresos"] = [
 ]
 
 pages["Salidas"] = [
+    st.Page("pages/14_Pedidos.py", title="Pedidos", icon="📝"),
+    st.Page("pages/15_Picking.py", title="Picking", icon="📋"),
+    st.Page("pages/16_Atencion_Picking.py", title="Atención de Picking", icon="✅"),
     st.Page("pages/05_Salida_Cuenta.py", title="Salida Cuenta", icon="➖"),
 ]
 
