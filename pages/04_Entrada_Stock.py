@@ -20,7 +20,7 @@ ITEM_COLUMNS = [
 ]
 
 st.title("➕ Entrada de mercancías")
-st.caption("Flujo tipo MIGO: cabecera editable, posiciones de materiales, verificación y contabilización.")
+st.caption("Flujo Ingreso: cabecera editable, posiciones de materiales, verificación y contabilización.")
 
 if "msg_entrada" in st.session_state:
     st.success(st.session_state.pop("msg_entrada"))
