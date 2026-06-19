@@ -44,7 +44,7 @@ def render_login_page():
     _init_auth_state()
     _login_css()
 
-    st.markdown('<div class="login-title">📦 Mini WMS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-title">📦 App WMS Insumos</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="login-subtitle">Acceso al sistema de insumos</div>',
         unsafe_allow_html=True,
