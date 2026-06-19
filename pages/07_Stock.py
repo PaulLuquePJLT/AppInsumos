@@ -97,13 +97,14 @@ with tabs[3]:
             st.info("No hay productos para evaluar.")
         else:
             low_stock = stock_general[
-                stock_general["cantidad_total"].fillna(0) <= stock_general["stock_minimo"].fillna(0)
+                stock_general["cantidad_disponible"].fillna(stock_general["cantidad_total"]).fillna(0)
+                <= stock_general["stock_minimo"].fillna(0)
             ]
             if low_stock.empty:
                 st.success("No hay productos en stock bajo mínimo.")
             else:
                 st.dataframe(
-                    low_stock[["sku", "nombre_producto", "cantidad_total", "stock_minimo"]]
+                    low_stock[["sku", "nombre_producto", "cantidad_total", "cantidad_en_picking", "cantidad_disponible", "stock_minimo"]]
                     .reset_index(drop=True),
                     use_container_width=True,
                     hide_index=True,
