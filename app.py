@@ -8,7 +8,7 @@ from src.auth_views import render_login_page
 
 st.set_page_config(
     page_title="AppInsumos",
-    page_icon="📦",
+    page_icon="https://static.vecteezy.com/system/resources/previews/005/861/264/non_2x/trendy-cogwheel-concepts-vector.jpg",
     layout="wide",
     initial_sidebar_state="expanded",
 )
