@@ -86,24 +86,56 @@ def clean_bool(value) -> int:
 
 def get_stock_general():
     return read_dataframe("""
-        SELECT *
-        FROM vw_stock_general
+        SELECT
+            id_producto,
+            sku,
+            nombre_producto,
+            codigo_unidad,
+            nombre_unidad,
+            stock_minimo,
+            stock_maximo,
+            cantidad_total
+        FROM dbo.vw_stock_general
         ORDER BY nombre_producto
     """)
 
 
 def get_stock_por_ubicacion():
     return read_dataframe("""
-        SELECT *
-        FROM vw_stock_por_ubicacion
+        SELECT
+            id_producto,
+            sku,
+            nombre_producto,
+            codigo_unidad,
+            nombre_unidad,
+            codigo_zona,
+            nombre_zona,
+            codigo_ubicacion,
+            tipo_ubicacion,
+            lote,
+            cantidad_actual,
+            fecha_actualizacion
+        FROM dbo.vw_stock_por_ubicacion
         ORDER BY nombre_producto, codigo_ubicacion
     """)
 
 
 def get_stock_por_cuenta():
     return read_dataframe("""
-        SELECT *
-        FROM vw_stock_por_cuenta
+        SELECT
+            id_cuenta,
+            codigo_cuenta,
+            nombre_cuenta,
+            id_producto,
+            sku,
+            nombre_producto,
+            codigo_unidad,
+            nombre_unidad,
+            cantidad_entregada,
+            cantidad_devuelta,
+            cantidad_neta,
+            fecha_actualizacion
+        FROM dbo.vw_stock_por_cuenta
         ORDER BY nombre_cuenta, nombre_producto
     """)
 
