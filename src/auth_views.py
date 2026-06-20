@@ -1,35 +1,7 @@
 import streamlit as st
 
 from src.auth import authenticate_user, request_password_reset, reset_password_with_code
-from src.theme import logo_img_html
-
-
-def _login_css():
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stSidebar"] {display: none;}
-        .block-container {
-            max-width: 520px;
-            padding-top: 8vh;
-        }
-        .login-title {
-            text-align: center;
-            font-size: 2.15rem;
-            font-weight: 850;
-            margin-bottom: 0.25rem;
-            color: var(--wms-navy);
-            letter-spacing: -0.04em;
-        }
-        .login-subtitle {
-            text-align: center;
-            color: var(--wms-muted);
-            margin-bottom: 1.5rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+from src.theme import apply_login_theme, logo_img_html
 
 
 def _init_auth_state():
@@ -40,20 +12,23 @@ def _init_auth_state():
         st.session_state.reset_identifier = ""
 
 
-def render_login_page():
-    _init_auth_state()
-    _login_css()
-
-    logo = logo_img_html(width=106)
+def _login_header():
+    logo = logo_img_html(width=76)
     st.markdown(
         f"""
         <div class="wms-login-wrapper">
-            <div class="wms-login-logo">{logo}</div>
+            <div class="wms-login-logo-card">{logo}</div>
             <div class="login-title">App WMS Block B</div>
             <div class="login-subtitle">Gestión de insumos, stock y operaciones logísticas</div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_login_page():
+    _init_auth_state()
+    apply_login_theme()
+    _login_header()
 
     if st.session_state.auth_mode == "login":
         with st.form("login_form"):
@@ -161,4 +136,3 @@ def render_login_page():
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
-
