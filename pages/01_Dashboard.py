@@ -52,7 +52,18 @@ def _style_fig(fig):
     return fig
 
 
-data = load_dashboard_data()
+try:
+    data = load_dashboard_data()
+except Exception as exc:
+    st.error(
+        "No se pudo cargar la información del dashboard. "
+        "Ejecuta en Azure SQL el script database/010_ui_login_dashboard_migo_fix.sql "
+        "y luego reinicia la app."
+    )
+    with st.expander("Detalle técnico"):
+        st.code(str(exc))
+    st.stop()
+
 mov = data["movimientos"].copy()
 stock = data["stock"].copy()
 productos = data["productos"].copy()
