@@ -4,6 +4,7 @@ import streamlit as st
 
 from src.auth import ensure_default_admin
 from src.auth_views import render_login_page
+from src.theme import apply_global_theme, render_sidebar_brand
 
 
 st.set_page_config(
@@ -13,17 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
-    <style>
-    @media (max-width: 768px) {
-        .block-container { padding-left: 1rem; padding-right: 1rem; }
-        button { width: 100%; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+apply_global_theme()
 
 
 if "authenticated" not in st.session_state:
@@ -135,6 +126,7 @@ pages["Sesión"] = [
 ]
 
 with st.sidebar:
+    render_sidebar_brand()
     st.divider()
     st.caption("Sesión activa")
 
@@ -145,3 +137,4 @@ with st.sidebar:
 
 pg = st.navigation(pages, position="sidebar", expanded=True)
 pg.run()
+
