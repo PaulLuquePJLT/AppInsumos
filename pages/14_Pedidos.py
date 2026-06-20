@@ -15,6 +15,14 @@ ITEM_COLUMNS = [
     "texts",
 ]
 
+DISPLAY_COLUMNS = [
+    "codigo_producto",
+    "cantidad",
+    "texts",
+    "nombre_producto",
+    "unidad_medida",
+]
+
 st.title("📝 Pedidos")
 st.caption("Creación de pedidos de insumos con cabecera y posiciones, similar al flujo de entrada tipo MIGO.")
 
@@ -83,6 +91,11 @@ def enrich_items(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=ITEM_COLUMNS)
 
 
+def code_signature(df: pd.DataFrame) -> tuple:
+    df = ensure_columns(df)
+    return tuple(df["codigo_producto"].fillna("").astype(str).str.strip().str.upper().tolist())
+
+
 def validate_items(df: pd.DataFrame):
     errors = []
     valid = []
@@ -139,10 +152,14 @@ if "pedido_nro" not in st.session_state:
     except Exception:
         st.session_state.pedido_nro = "P000000001"
 
+if "pedido_editor_version" not in st.session_state:
+    st.session_state.pedido_editor_version = 0
+
 
 def limpiar_pedido():
     st.session_state.pedido_items = empty_items()
     st.session_state.pedido_verified_items = []
+    st.session_state.pedido_editor_version += 1
     try:
         st.session_state.pedido_nro = get_next_pedido_number()
     except Exception:
@@ -176,22 +193,35 @@ with tab_crear:
     st.subheader("Datos de contenido")
     st.info("Completa el código de producto y la cantidad. El nombre y la unidad se completan automáticamente.")
 
+    editor_key = f"pedido_editor_{st.session_state.pedido_editor_version}"
+    editor_data = enrich_items(st.session_state.pedido_items)
+    previous_items = editor_data.copy()
+
     edited = st.data_editor(
-        enrich_items(st.session_state.pedido_items),
+        editor_data,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         disabled=["nombre_producto", "unidad_medida"],
+        column_order=DISPLAY_COLUMNS,
         column_config={
             "codigo_producto": st.column_config.TextColumn("Código producto", help="SKU del producto"),
-            "nombre_producto": st.column_config.TextColumn("Nombre producto"),
-            "unidad_medida": st.column_config.TextColumn("UM"),
             "cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.0, step=1.0),
             "texts": st.column_config.TextColumn("Texts", help="Texto referencial por código", width="large"),
+            "nombre_producto": st.column_config.TextColumn("Nombre producto"),
+            "unidad_medida": st.column_config.TextColumn("UM"),
         },
-        key="pedido_editor",
+        key=editor_key,
     )
-    st.session_state.pedido_items = enrich_items(edited)
+
+    enriched_after_edit = enrich_items(edited)
+    previous_signature = code_signature(previous_items)
+    new_signature = code_signature(enriched_after_edit)
+    st.session_state.pedido_items = enriched_after_edit
+
+    if new_signature != previous_signature:
+        st.session_state.pedido_editor_version += 1
+        st.rerun()
 
     colv, colc, coll = st.columns([1, 1, 1])
     verificar = colv.button("Verificar", type="secondary", use_container_width=True)
