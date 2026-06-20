@@ -153,15 +153,14 @@ pg = st.navigation(_page_objects_from_menu(MENU_GROUPS), position="hidden")
 with st.sidebar:
     render_sidebar_brand()
     render_sidebar_nav(MENU_GROUPS)
-    st.divider()
 
     full_name = f"{user.get('nombres', '')} {user.get('apellidos', '')}".strip()
-    st.markdown('<div class="wms-nav-section">Sesión</div>', unsafe_allow_html=True)
-    st.caption("Sesión activa")
-    st.write(f"**{full_name or user.get('usuario_login', '')}**")
-    st.caption(f"Rol: {user.get('rol', '')}")
+    with st.expander("Sesión", expanded=False):
+        st.caption("Sesión activa")
+        st.write(f"**{full_name or user.get('usuario_login', '')}**")
+        st.caption(f"Rol: {user.get('rol', '')}")
 
-    if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
-        _logout()
+        if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
+            _logout()
 
 pg.run()
