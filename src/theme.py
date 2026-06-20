@@ -31,9 +31,9 @@ def _asset_path(*parts: str) -> Path:
 def _find_logo_path() -> Path | None:
     candidates = [
         _asset_path("logo.png"),
+        _asset_path("logo.webp"),
         _asset_path("logo.jpg"),
         _asset_path("logo.jpeg"),
-        _asset_path("logo.webp"),
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -58,12 +58,13 @@ def get_logo_base64() -> str:
 
 
 def load_page_icon():
-    """Devuelve el logo local para usarlo como favicon de Streamlit."""
+    """Logo local para favicon de Streamlit."""
     logo_path = _find_logo_path()
     if not logo_path:
         return "📦"
     try:
         from PIL import Image
+
         return Image.open(logo_path)
     except Exception:
         return str(logo_path)
@@ -86,30 +87,30 @@ def login_background_data_uri() -> str:
       <defs>
         <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
           <stop offset='0' stop-color='#eaf8f6'/>
-          <stop offset='.55' stop-color='#f7fbfb'/>
+          <stop offset='.52' stop-color='#f8fcfc'/>
           <stop offset='1' stop-color='#eef7f6'/>
         </linearGradient>
         <linearGradient id='rack' x1='0' y1='0' x2='0' y2='1'>
           <stop offset='0' stop-color='#0e5663' stop-opacity='.22'/>
-          <stop offset='1' stop-color='#142534' stop-opacity='.08'/>
+          <stop offset='1' stop-color='#142534' stop-opacity='.06'/>
         </linearGradient>
       </defs>
       <rect width='1600' height='900' fill='url(#bg)'/>
-      <circle cx='1320' cy='130' r='260' fill='#18A999' opacity='.09'/>
-      <circle cx='260' cy='720' r='280' fill='#F2C94C' opacity='.10'/>
+      <circle cx='1320' cy='125' r='260' fill='#18A999' opacity='.10'/>
+      <circle cx='250' cy='735' r='280' fill='#F2C94C' opacity='.09'/>
       <g opacity='.72'>
-        <path d='M90 600 L520 410 L520 760 L90 860 Z' fill='url(#rack)'/>
-        <path d='M1080 360 L1510 205 L1510 650 L1080 775 Z' fill='url(#rack)'/>
-        <path d='M145 615 L500 465' stroke='#0E5663' stroke-opacity='.16' stroke-width='10'/>
-        <path d='M145 690 L500 540' stroke='#0E5663' stroke-opacity='.13' stroke-width='8'/>
-        <path d='M145 765 L500 615' stroke='#0E5663' stroke-opacity='.10' stroke-width='8'/>
-        <path d='M1130 395 L1480 265' stroke='#0E5663' stroke-opacity='.16' stroke-width='10'/>
-        <path d='M1130 480 L1480 350' stroke='#0E5663' stroke-opacity='.13' stroke-width='8'/>
-        <path d='M1130 565 L1480 435' stroke='#0E5663' stroke-opacity='.10' stroke-width='8'/>
+        <path d='M85 600 L515 410 L515 760 L85 860 Z' fill='url(#rack)'/>
+        <path d='M1085 360 L1515 205 L1515 650 L1085 775 Z' fill='url(#rack)'/>
+        <path d='M145 615 L495 465' stroke='#0E5663' stroke-opacity='.15' stroke-width='10'/>
+        <path d='M145 690 L495 540' stroke='#0E5663' stroke-opacity='.12' stroke-width='8'/>
+        <path d='M145 765 L495 615' stroke='#0E5663' stroke-opacity='.09' stroke-width='8'/>
+        <path d='M1135 395 L1480 265' stroke='#0E5663' stroke-opacity='.15' stroke-width='10'/>
+        <path d='M1135 480 L1480 350' stroke='#0E5663' stroke-opacity='.12' stroke-width='8'/>
+        <path d='M1135 565 L1480 435' stroke='#0E5663' stroke-opacity='.09' stroke-width='8'/>
       </g>
-      <g opacity='.32'>
-        <rect x='103' y='618' width='55' height='42' rx='4' fill='#F2C94C'/>
-        <rect x='175' y='588' width='52' height='39' rx='4' fill='#18A999'/>
+      <g opacity='.30'>
+        <rect x='105' y='618' width='55' height='42' rx='4' fill='#F2C94C'/>
+        <rect x='178' y='588' width='52' height='39' rx='4' fill='#18A999'/>
         <rect x='252' y='554' width='58' height='43' rx='4' fill='#142534'/>
         <rect x='1165' y='397' width='58' height='43' rx='4' fill='#18A999'/>
         <rect x='1245' y='365' width='52' height='39' rx='4' fill='#F2C94C'/>
@@ -146,16 +147,18 @@ def apply_global_theme() -> None:
             color: var(--wms-navy);
         }}
 
-        .block-container {{
-            padding-top: 2.0rem;
-            padding-bottom: 3rem;
-            max-width: 1540px;
+        header[data-testid="stHeader"] {{
+            background: rgba(255,255,255,.78) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(220,231,234,.78);
+            min-height: 3.65rem;
+            z-index: 999999;
         }}
 
-        header[data-testid="stHeader"] {{
-            background: rgba(255,255,255,.70) !important;
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(220,231,234,.65);
+        .block-container {{
+            padding-top: 4.35rem !important;
+            padding-bottom: 3rem;
+            max-width: 1540px;
         }}
 
         h1, h2, h3 {{
@@ -168,24 +171,45 @@ def apply_global_theme() -> None:
 
         section[data-testid="stSidebar"] {{
             background:
-                radial-gradient(circle at 25% 12%, rgba(24,169,153,.22), transparent 24%),
-                linear-gradient(180deg, #0E313C 0%, #123D49 46%, #1B5861 100%) !important;
+                radial-gradient(circle at 18% 8%, rgba(221,247,243,.16), transparent 26%),
+                linear-gradient(180deg, #0D3140 0%, #123F4B 42%, #1C6570 100%) !important;
             border-right: 1px solid rgba(255,255,255,.08);
         }}
 
         section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
-            padding-top: 1.35rem;
+            padding-top: 1.2rem;
         }}
 
         section[data-testid="stSidebar"] * {{ color: rgba(255,255,255,.88) !important; }}
         section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {{ color: rgba(255,255,255,.88) !important; }}
         section[data-testid="stSidebar"] [data-testid="stHeader"] {{ background: transparent !important; }}
 
+        section[data-testid="stSidebar"] details {{
+            background: rgba(255,255,255,.055) !important;
+            border: 1px solid rgba(255,255,255,.075) !important;
+            border-radius: 16px !important;
+            margin: .42rem 0 .68rem 0 !important;
+            overflow: hidden;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            padding: .55rem .65rem !important;
+            font-weight: 820 !important;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            font-size: .78rem !important;
+            color: rgba(221,247,243,.92) !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary:hover {{
+            background: rgba(255,255,255,.055) !important;
+        }}
+
         section[data-testid="stSidebar"] a {{
-            border-radius: 13px !important;
-            padding-top: .48rem !important;
-            padding-bottom: .48rem !important;
-            margin: .05rem 0 !important;
+            border-radius: 12px !important;
+            padding-top: .45rem !important;
+            padding-bottom: .45rem !important;
+            margin: .04rem .25rem !important;
             color: rgba(255,255,255,.84) !important;
             transition: all .15s ease-in-out;
         }}
@@ -196,7 +220,7 @@ def apply_global_theme() -> None:
         }}
 
         section[data-testid="stSidebar"] a[aria-current="page"] {{
-            background: rgba(24,169,153,.22) !important;
+            background: rgba(24,169,153,.24) !important;
             border-left: 4px solid var(--wms-gold);
             font-weight: 760;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
@@ -208,11 +232,11 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-brand {{
-            background: rgba(255,255,255,.08);
+            background: rgba(255,255,255,.07);
             border: 1px solid rgba(255,255,255,.10);
             border-radius: 20px;
-            padding: .85rem .85rem;
-            margin: .2rem .05rem 1rem .05rem;
+            padding: .9rem .85rem;
+            margin: .15rem .05rem 1rem .05rem;
             display: flex;
             gap: .75rem;
             align-items: center;
@@ -220,14 +244,15 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-brand-logo {{
-            width: 54px;
-            height: 54px;
+            width: 56px;
+            height: 56px;
             border-radius: 16px;
-            background: rgba(255,255,255,.88);
+            background: transparent;
             display:flex;
             align-items:center;
             justify-content:center;
-            overflow:hidden;
+            overflow:visible;
+            filter: drop-shadow(0 10px 16px rgba(0,0,0,.20));
         }}
 
         .wms-sidebar-title {{
@@ -332,7 +357,7 @@ def apply_global_theme() -> None:
         }}
 
         @media (max-width: 768px) {{
-            .block-container {{ padding-left: 1rem; padding-right: 1rem; }}
+            .block-container {{ padding-left: 1rem; padding-right: 1rem; padding-top: 4rem !important; }}
             .wms-card {{ padding: 1rem; }}
             button {{ width: 100%; }}
         }}
@@ -354,43 +379,80 @@ def apply_login_theme() -> None:
             visibility: hidden !important;
             width: 0 !important;
             min-width: 0 !important;
+            transform: translateX(-100%) !important;
         }}
 
         [data-testid="stAppViewContainer"] {{
-            background:
-                linear-gradient(90deg, rgba(14,49,60,.92) 0%, rgba(14,49,60,.88) 16%, rgba(14,49,60,0) 16.2%),
-                url("{logo_bg}") center center / cover no-repeat !important;
+            background: url("{logo_bg}") center center / cover no-repeat fixed !important;
+            margin-left: 0 !important;
+        }}
+
+        [data-testid="stAppViewContainer"] .main,
+        section.main {{
+            margin-left: 0 !important;
+        }}
+
+        header[data-testid="stHeader"] {{
+            background: rgba(255,255,255,.72) !important;
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(220,231,234,.72);
+            min-height: 3.65rem;
+            z-index: 999999;
         }}
 
         .block-container {{
-            max-width: 460px !important;
-            padding-top: 7.5vh !important;
+            max-width: 430px !important;
+            padding-top: 6.25rem !important;
             padding-bottom: 3rem !important;
             margin-left: auto !important;
             margin-right: auto !important;
         }}
 
-        .wms-login-wrapper {{
-            background: rgba(255,255,255,.88);
-            border: 1px solid rgba(220,231,234,.90);
-            border-radius: 30px;
-            box-shadow: 0 32px 78px rgba(20,37,52,.18);
-            padding: 1.75rem 1.8rem 1.25rem 1.8rem;
-            backdrop-filter: blur(14px);
+        div[data-testid="stForm"] {{
+            background: rgba(255,255,255,.90) !important;
+            border: 1px solid rgba(220,231,234,.92) !important;
+            border-radius: 30px !important;
+            box-shadow: 0 32px 78px rgba(20,37,52,.18) !important;
+            padding: 1.85rem 1.85rem 1.4rem 1.85rem !important;
+            backdrop-filter: blur(16px) !important;
         }}
 
-        .wms-login-logo-card {{
-            width: 118px;
-            height: 118px;
-            border-radius: 24px;
-            background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(221,247,243,.78));
-            border: 1px solid rgba(220,231,234,.9);
+        div[data-testid="stForm"] .stTextInput input {{
+            background: rgba(246,250,251,.98) !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            border-radius: 13px !important;
+        }}
+
+        div[data-testid="stForm"] .stFormSubmitButton > button {{
+            width: 100% !important;
+            border-radius: 13px !important;
+            font-weight: 760 !important;
+            min-height: 2.6rem;
+        }}
+
+        div[data-testid="stForm"] .stFormSubmitButton:first-of-type > button {{
+            background: linear-gradient(135deg, var(--wms-teal-dark), var(--wms-teal)) !important;
+            color: white !important;
+            border: 1px solid rgba(14,86,99,.18) !important;
+        }}
+
+        .wms-login-brand {{
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 1.05rem auto;
-            box-shadow: 0 18px 40px rgba(14,86,99,.12);
-            overflow: hidden;
+            margin-bottom: 1.25rem;
+        }}
+
+        .wms-login-logo {{
+            width: 112px;
+            height: 112px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            margin: 0 auto .95rem auto;
+            background: transparent;
+            filter: drop-shadow(0 18px 28px rgba(14,86,99,.18));
         }}
 
         .login-title {{
@@ -405,14 +467,17 @@ def apply_login_theme() -> None:
         .login-subtitle {{
             text-align: center;
             color: var(--wms-muted);
-            margin: 0 auto 1.45rem auto;
+            margin: 0 auto .6rem auto;
             max-width: 320px;
             line-height: 1.55;
         }}
 
-        .wms-login-wrapper .stButton > button,
-        .wms-login-wrapper .stFormSubmitButton > button {{
-            width: 100%;
+        @media (max-width: 768px) {{
+            .block-container {{
+                max-width: 92vw !important;
+                padding-top: 5rem !important;
+            }}
+            div[data-testid="stForm"] {{ padding: 1.35rem 1.2rem 1.15rem 1.2rem !important; }}
         }}
         </style>
         """,
@@ -421,7 +486,7 @@ def apply_login_theme() -> None:
 
 
 def render_sidebar_brand() -> None:
-    logo = logo_img_html(width=46)
+    logo = logo_img_html(width=54)
     st.markdown(
         f"""
         <div class="wms-sidebar-brand">
@@ -437,16 +502,17 @@ def render_sidebar_brand() -> None:
 
 
 def render_sidebar_nav(groups: Iterable[tuple[str, list[dict]]]) -> None:
+    """Renderiza grupos del menú como desplegables contraídos por defecto."""
     for group_name, items in groups:
         if not items:
             continue
-        st.markdown(f'<div class="wms-nav-section">{group_name}</div>', unsafe_allow_html=True)
-        for item in items:
-            st.page_link(
-                item["path"],
-                label=item["title"],
-                icon=item.get("icon"),
-            )
+        with st.expander(group_name, expanded=False):
+            for item in items:
+                st.page_link(
+                    item["path"],
+                    label=item["title"],
+                    icon=item.get("icon"),
+                )
 
 
 def card(title: str, body_html: str = "") -> None:
