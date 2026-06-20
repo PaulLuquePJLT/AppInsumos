@@ -1,4 +1,6 @@
 from datetime import date
+from zoneinfo import ZoneInfo
+LOCAL_TZ = ZoneInfo("America/Lima") 
 
 import pandas as pd
 import streamlit as st
@@ -79,6 +81,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def now_local():
+return datetime.now(LOCAL_TZ).replace(microsecond=0)
 
 def clean_text(value) -> str:
     if value is None or pd.isna(value):
@@ -262,7 +267,7 @@ with col1:
     proveedor_label = st.selectbox("Proveedor", provider_labels)
 
 with col2:
-    fecha_ingreso = st.date_input("Fecha de ingreso", value=date.today())
+    fecha_ingreso = st.date_input("Fecha de ingreso", value=now_local().date())
 
 with col3:
     documento_referencia = st.text_input("Documento referencia", placeholder="Guía, factura, OC")
@@ -343,6 +348,7 @@ if verificar or contabilizar:
             selected_provider = proveedores.iloc[provider_labels.index(proveedor_label)]
 
             try:
+                fecha_ingreso = now_local()
                 id_movimiento = registrar_entrada_migo(
                     id_proveedor=int(selected_provider["id_proveedor"]),
                     fecha_ingreso=fecha_ingreso,
