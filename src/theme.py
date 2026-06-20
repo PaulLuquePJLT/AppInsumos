@@ -187,13 +187,13 @@ def apply_global_theme() -> None:
         section[data-testid="stSidebar"] details {{
             background: rgba(255,255,255,.055) !important;
             border: 1px solid rgba(255,255,255,.075) !important;
-            border-radius: 16px !important;
-            margin: .42rem 0 .68rem 0 !important;
+            border-radius: 14px !important;
+            margin: .18rem 0 .36rem 0 !important;
             overflow: hidden;
         }}
 
         section[data-testid="stSidebar"] details summary {{
-            padding: .55rem .65rem !important;
+            padding: .48rem .62rem !important;
             font-weight: 820 !important;
             letter-spacing: .04em;
             text-transform: uppercase;
@@ -203,6 +203,22 @@ def apply_global_theme() -> None:
 
         section[data-testid="stSidebar"] details summary:hover {{
             background: rgba(255,255,255,.055) !important;
+        }}
+
+        section[data-testid="stSidebar"] details[open] > summary {{
+            background: rgba(255,255,255,.93) !important;
+            color: var(--wms-navy) !important;
+            border-radius: 13px 13px 0 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] details[open] > summary *,
+        section[data-testid="stSidebar"] details[open] > summary svg {{
+            color: var(--wms-navy) !important;
+            fill: var(--wms-navy) !important;
+        }}
+
+        section[data-testid="stSidebar"] details[open] {{
+            background: rgba(255,255,255,.065) !important;
         }}
 
         section[data-testid="stSidebar"] a {{
@@ -278,6 +294,53 @@ def apply_global_theme() -> None:
         }}
 
         section[data-testid="stSidebar"] hr {{ border-color: rgba(255,255,255,.15) !important; }}
+
+        .wms-sidebar-spacer {{
+            height: .35rem;
+        }}
+
+        .wms-session-card {{
+            background: rgba(255,255,255,.07);
+            border: 1px solid rgba(255,255,255,.11);
+            border-radius: 16px;
+            padding: .78rem .85rem;
+            margin: .65rem .05rem .55rem .05rem;
+            box-shadow: 0 12px 26px rgba(0,0,0,.10);
+        }}
+
+        .wms-session-label {{
+            font-size: .68rem;
+            text-transform: uppercase;
+            letter-spacing: .085em;
+            color: rgba(221,247,243,.62) !important;
+            font-weight: 850;
+            margin-bottom: .20rem;
+        }}
+
+        .wms-session-name {{
+            color: rgba(255,255,255,.94) !important;
+            font-weight: 840;
+            line-height: 1.15;
+        }}
+
+        .wms-session-role {{
+            color: rgba(221,247,243,.70) !important;
+            font-size: .76rem;
+            margin-top: .18rem;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            background: rgba(255,255,255,.10) !important;
+            color: rgba(255,255,255,.94) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
+            box-shadow: none !important;
+            min-height: 2.35rem;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button:hover {{
+            background: rgba(255,255,255,.18) !important;
+            color: #FFFFFF !important;
+        }}
 
         div[data-testid="stMetric"] {{
             background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(245,251,251,.96));
@@ -401,7 +464,7 @@ def apply_login_theme() -> None:
         }}
 
         .block-container {{
-            max-width: 430px !important;
+            max-width: 560px !important;
             padding-top: 6.25rem !important;
             padding-bottom: 3rem !important;
             margin-left: auto !important;
@@ -413,7 +476,7 @@ def apply_login_theme() -> None:
             border: 1px solid rgba(220,231,234,.92) !important;
             border-radius: 30px !important;
             box-shadow: 0 32px 78px rgba(20,37,52,.18) !important;
-            padding: 1.85rem 1.85rem 1.4rem 1.85rem !important;
+            padding: 2.05rem 2.25rem 1.65rem 2.25rem !important;
             backdrop-filter: blur(16px) !important;
         }}
 
@@ -457,18 +520,19 @@ def apply_login_theme() -> None:
 
         .login-title {{
             text-align: center;
-            font-size: 2.0rem;
+            font-size: clamp(2.05rem, 2.6vw, 2.55rem);
             font-weight: 880;
             margin-bottom: .25rem;
             color: var(--wms-navy);
             letter-spacing: -0.05em;
+            white-space: nowrap;
         }}
 
         .login-subtitle {{
             text-align: center;
             color: var(--wms-muted);
             margin: 0 auto .6rem auto;
-            max-width: 320px;
+            max-width: 420px;
             line-height: 1.55;
         }}
 
@@ -478,6 +542,7 @@ def apply_login_theme() -> None:
                 padding-top: 5rem !important;
             }}
             div[data-testid="stForm"] {{ padding: 1.35rem 1.2rem 1.15rem 1.2rem !important; }}
+            .login-title {{ white-space: normal; font-size: 1.9rem; }}
         }}
         </style>
         """,
