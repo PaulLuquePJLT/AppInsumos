@@ -12,14 +12,15 @@ def _init_auth_state():
         st.session_state.reset_identifier = ""
 
 
-def _login_header():
-    logo = logo_img_html(width=76)
+def _login_brand(title: str = "App WMS Block B", subtitle: str = "Gestión de insumos, stock y operaciones logísticas"):
+    logo = logo_img_html(width=94)
     st.markdown(
         f"""
-        <div class="wms-login-wrapper">
-            <div class="wms-login-logo-card">{logo}</div>
-            <div class="login-title">App WMS Block B</div>
-            <div class="login-subtitle">Gestión de insumos, stock y operaciones logísticas</div>
+        <div class="wms-login-brand">
+            <div class="wms-login-logo">{logo}</div>
+            <div class="login-title">{title}</div>
+            <div class="login-subtitle">{subtitle}</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -28,13 +29,18 @@ def _login_header():
 def render_login_page():
     _init_auth_state()
     apply_login_theme()
-    _login_header()
 
     if st.session_state.auth_mode == "login":
         with st.form("login_form"):
+            _login_brand()
             usuario = st.text_input("Usuario o correo")
             password = st.text_input("Contraseña", type="password")
-            ingresar = st.form_submit_button("Ingresar", use_container_width=True)
+            ingresar = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
+            forgot = st.form_submit_button("¿Olvidaste tu contraseña?", use_container_width=True)
+
+        if forgot:
+            st.session_state.auth_mode = "forgot_request"
+            st.rerun()
 
         if ingresar:
             user = authenticate_user(usuario, password)
@@ -46,20 +52,19 @@ def render_login_page():
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
-        if st.button("¿Olvidaste tu contraseña?", use_container_width=True):
-            st.session_state.auth_mode = "forgot_request"
-            st.rerun()
-
     elif st.session_state.auth_mode == "forgot_request":
-        st.subheader("Recuperar contraseña")
-        st.write(
-            "Ingresa tu usuario o correo registrado. "
-            "El sistema enviará un código de recuperación."
-        )
-
         with st.form("forgot_request_form"):
+            _login_brand(
+                title="Recuperar contraseña",
+                subtitle="Ingresa tu usuario o correo registrado. Te enviaremos un código de recuperación.",
+            )
             identifier = st.text_input("Usuario o correo")
-            enviar = st.form_submit_button("Enviar código", use_container_width=True)
+            enviar = st.form_submit_button("Enviar código", use_container_width=True, type="primary")
+            volver = st.form_submit_button("Volver al login", use_container_width=True)
+
+        if volver:
+            st.session_state.auth_mode = "login"
+            st.rerun()
 
         if enviar:
             if not identifier.strip():
@@ -89,14 +94,12 @@ def render_login_page():
                     with st.expander("Detalle técnico"):
                         st.code(error_text)
 
-        if st.button("Volver al login", use_container_width=True):
-            st.session_state.auth_mode = "login"
-            st.rerun()
-
     elif st.session_state.auth_mode == "forgot_verify":
-        st.subheader("Restablecer contraseña")
-
         with st.form("forgot_verify_form"):
+            _login_brand(
+                title="Restablecer contraseña",
+                subtitle="Ingresa el código recibido por correo y define una nueva contraseña.",
+            )
             identifier = st.text_input(
                 "Usuario o correo",
                 value=st.session_state.reset_identifier,
@@ -107,7 +110,18 @@ def render_login_page():
             cambiar = st.form_submit_button(
                 "Restablecer contraseña",
                 use_container_width=True,
+                type="primary",
             )
+            enviar_otro = st.form_submit_button("Enviar otro código", use_container_width=True)
+            volver = st.form_submit_button("Volver al login", use_container_width=True)
+
+        if volver:
+            st.session_state.auth_mode = "login"
+            st.rerun()
+
+        if enviar_otro:
+            st.session_state.auth_mode = "forgot_request"
+            st.rerun()
 
         if cambiar:
             if not identifier.strip() or not code.strip():
@@ -124,15 +138,3 @@ def render_login_page():
                     st.session_state.auth_mode = "login"
                 else:
                     st.error(message)
-
-        col1, col2 = st.columns(2)
-
-        if col1.button("Enviar otro código", use_container_width=True):
-            st.session_state.auth_mode = "forgot_request"
-            st.rerun()
-
-        if col2.button("Volver al login", use_container_width=True):
-            st.session_state.auth_mode = "login"
-            st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
