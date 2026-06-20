@@ -8,6 +8,7 @@ import streamlit as st
 from src.movimientos import registrar_entrada_migo
 from src.queries import get_productos_activos, get_proveedores, get_ubicaciones
 from src.session import current_user_id
+from src.theme import card
 
 STAGE_LOCATION_CODE = "B1.RE.01"
 ITEM_COLUMNS = [
@@ -21,15 +22,19 @@ ITEM_COLUMNS = [
     "requiere_lote",
 ]
 
+st.markdown('<div class="wms-page-kicker">Ingresos</div>', unsafe_allow_html=True)
 st.title("➕ Entrada de mercancías")
-st.caption("Flujo Ingreso: cabecera editable, posiciones de materiales, verificación y contabilización.")
+st.markdown('<div class="wms-soft-banner">Flujo tipo MIGO: cabecera, posiciones, verificación y contabilización en una sola transacción.</div>', unsafe_allow_html=True)
 
 if "msg_entrada" in st.session_state:
     st.success(st.session_state.pop("msg_entrada"))
 
-productos = get_productos_activos()
-ubicaciones = get_ubicaciones()
-proveedores = get_proveedores()
+@st.cache_data(ttl=120, show_spinner=False)
+def load_entrada_reference_data():
+    return get_productos_activos(), get_ubicaciones(), get_proveedores()
+
+
+productos, ubicaciones, proveedores = load_entrada_reference_data()
 
 if productos.empty:
     st.warning("Primero registra al menos un producto activo.")
@@ -167,6 +172,22 @@ def df_equal(left: pd.DataFrame, right: pd.DataFrame) -> bool:
     return left_cmp.equals(right_cmp)
 
 
+def code_signature(df: pd.DataFrame) -> tuple:
+    df = ensure_item_columns(df)
+    return tuple(df["codigo_producto"].fillna("").astype(str).str.strip().str.upper().tolist())
+
+
+def merge_without_recalculating_system_columns(edited: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
+    edited = ensure_item_columns(edited)
+    previous = ensure_item_columns(previous)
+    result = edited.copy()
+    for idx in range(len(result)):
+        if idx < len(previous):
+            for col in ["nombre_producto", "unidad_medida", "requiere_lote"]:
+                result.at[idx, col] = previous.iloc[idx][col]
+    return result
+
+
 def validate_document(df_items: pd.DataFrame, selected_provider_label: str):
     errors = []
     valid_items = []
@@ -298,13 +319,20 @@ edited_items = st.data_editor(
         "texts": st.column_config.TextColumn("Texts", width="large"),
         "requiere_lote": st.column_config.CheckboxColumn("Req. lote", width="small"),
     },
+    key="entrada_migo_editor",
 )
 
-enriched_items = enrich_items(edited_items)
-
-if not df_equal(enriched_items, st.session_state.entrada_migo_items):
-    st.session_state.entrada_migo_items = enriched_items
+previous_items = st.session_state.entrada_migo_items
+if code_signature(edited_items) != code_signature(previous_items):
+    st.session_state.entrada_migo_items = enrich_items(edited_items)
+    if "entrada_migo_editor" in st.session_state:
+        del st.session_state["entrada_migo_editor"]
     st.rerun()
+else:
+    st.session_state.entrada_migo_items = merge_without_recalculating_system_columns(
+        edited_items,
+        previous_items,
+    )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -317,6 +345,8 @@ limpiar = col_clear.button("Limpiar", use_container_width=True)
 if limpiar:
     st.session_state.entrada_migo_items = empty_items()
     st.session_state.entrada_migo_valid_items = []
+    if "entrada_migo_editor" in st.session_state:
+        del st.session_state["entrada_migo_editor"]
     st.rerun()
 
 if verificar or contabilizar:
@@ -363,7 +393,11 @@ if verificar or contabilizar:
                 )
                 st.session_state.entrada_migo_items = empty_items()
                 st.session_state.entrada_migo_valid_items = []
+                load_entrada_reference_data.clear()
+                if "entrada_migo_editor" in st.session_state:
+                    del st.session_state["entrada_migo_editor"]
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo contabilizar la entrada.")
                 st.exception(exc)
+
