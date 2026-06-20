@@ -161,7 +161,7 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="wms-sidebar-spacer"></div>
-        <div class="wms-session-card">
+        <div class="wms-session-block">
             <div class="wms-session-label">Sesión activa</div>
             <div class="wms-session-name">{display_name}</div>
             <div class="wms-session-role">Rol: {role_name}</div>
