@@ -68,7 +68,7 @@ def registrar_entrada_migo(
                 VALUES
                     (
                         'ENTRADA',
-                        :fecha_ingreso,
+                        dbo.fn_now_bogota_lima(),
                         :id_proveedor,
                         :referencia,
                         :observacion,
@@ -1064,10 +1064,10 @@ def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: 
                 id_mov = conn.execute(
                     text("""
                         INSERT INTO movimientos
-                            (tipo_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
+                            (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
                         OUTPUT INSERTED.id_movimiento
                         VALUES
-                            ('SALIDA_CUENTA', :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
+                            ('SALIDA_CUENTA', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
                     """),
                     {
                         "id_cuenta": id_cuenta,
@@ -1157,7 +1157,7 @@ def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usu
                     (tipo_movimiento, fecha_movimiento, referencia, observacion, id_usuario, estado)
                 OUTPUT INSERTED.id_movimiento
                 VALUES
-                    ('TRANSFERENCIA', :fecha_movimiento, 'TRANSFERENCIA_MASIVA', :observacion, :id_usuario, 'CONFIRMADO')
+                    ('TRANSFERENCIA', dbo.fn_now_bogota_lima(), 'TRANSFERENCIA_MASIVA', :observacion, :id_usuario, 'CONFIRMADO')
             """),
             {
                 "fecha_movimiento": fecha_movimiento,
