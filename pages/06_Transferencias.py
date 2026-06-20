@@ -3,6 +3,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from src.editor_utils import apply_data_editor_state
 from src.movimientos import registrar_transferencia_masiva
 from src.queries import get_productos_activos, get_stock_para_transferencia, get_ubicaciones
 from src.session import current_user_id
@@ -19,8 +20,6 @@ ITEM_COLUMNS = [
     "texts",
 ]
 
-# Orden visual para pegado masivo desde Excel: primero campos editables,
-# luego campos informativos calculados.
 DISPLAY_COLUMNS = [
     "codigo_producto",
     "lote",
@@ -33,12 +32,18 @@ DISPLAY_COLUMNS = [
     "stock_disponible",
 ]
 
+EDITOR_BASE_KEY = "transfer_editor"
+
 st.markdown('<div class="wms-page-kicker">Consultas / Operación</div>', unsafe_allow_html=True)
 st.title("🔁 Transferencias / Cambio de ubicación")
-st.markdown('<div class="wms-soft-banner">Transferencia masiva con cabecera, tabla editable, verificación y confirmación. Los datos maestros se mantienen en sesión para evitar recargas innecesarias.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="wms-soft-banner">Transferencia masiva con cabecera, tabla editable, verificación y confirmación.</div>',
+    unsafe_allow_html=True,
+)
 
 if "msg_transferencia" in st.session_state:
     st.success(st.session_state.pop("msg_transferencia"))
+
 
 @st.cache_data(ttl=90, show_spinner=False)
 def load_transfer_reference_data():
@@ -83,31 +88,29 @@ def normalizar_lote(value):
     return text if text else None
 
 
-def empty_items(rows: int = 8) -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "codigo_producto": "",
-                "nombre_producto": "",
-                "unidad_medida": "",
-                "lote": "",
-                "codigo_ubicacion_origen": "",
-                "stock_disponible": 0.0,
-                "cantidad": 0.0,
-                "codigo_ubicacion_destino": "",
-                "texts": "",
-            }
-            for _ in range(rows)
-        ],
-        columns=ITEM_COLUMNS,
-    )
+def default_row() -> dict:
+    return {
+        "codigo_producto": "",
+        "nombre_producto": "",
+        "unidad_medida": "",
+        "lote": "",
+        "codigo_ubicacion_origen": "",
+        "stock_disponible": "",
+        "cantidad": "",
+        "codigo_ubicacion_destino": "",
+        "texts": "",
+    }
+
+
+def empty_items(rows: int = 12) -> pd.DataFrame:
+    return pd.DataFrame([default_row() for _ in range(rows)], columns=ITEM_COLUMNS)
 
 
 def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col in ITEM_COLUMNS:
         if col not in df.columns:
-            df[col] = 0.0 if col in {"cantidad", "stock_disponible"} else ""
+            df[col] = default_row().get(col, "")
     return df[ITEM_COLUMNS]
 
 
@@ -130,7 +133,7 @@ def get_available(codigo_producto: str, codigo_ubicacion: str, lote):
     return float(rows["cantidad_disponible"].sum())
 
 
-def enrich_items(df: pd.DataFrame, recalc_stock: bool = True) -> pd.DataFrame:
+def enrich_items(df: pd.DataFrame, recalc_stock: bool = False) -> pd.DataFrame:
     df = ensure_columns(df)
     rows = []
     for _, row in df.iterrows():
@@ -139,7 +142,7 @@ def enrich_items(df: pd.DataFrame, recalc_stock: bool = True) -> pd.DataFrame:
         destino = clean_upper(row.get("codigo_ubicacion_destino"))
         lote = clean_upper(row.get("lote"))
         product = product_map.get(codigo)
-        stock_disponible = get_available(codigo, origen, lote) if recalc_stock else row.get("stock_disponible", 0.0)
+        stock_disponible = get_available(codigo, origen, lote) if recalc_stock else row.get("stock_disponible", "")
         rows.append({
             "codigo_producto": codigo,
             "nombre_producto": clean_text(product["nombre_producto"]) if product is not None else "",
@@ -147,33 +150,25 @@ def enrich_items(df: pd.DataFrame, recalc_stock: bool = True) -> pd.DataFrame:
             "lote": lote,
             "codigo_ubicacion_origen": origen,
             "stock_disponible": stock_disponible,
-            "cantidad": row.get("cantidad", 0.0),
+            "cantidad": clean_text(row.get("cantidad")),
             "codigo_ubicacion_destino": destino,
             "texts": clean_text(row.get("texts")),
         })
     return pd.DataFrame(rows, columns=ITEM_COLUMNS)
 
 
-def code_signature(df: pd.DataFrame) -> tuple:
-    df = ensure_columns(df)
-    return tuple(df["codigo_producto"].fillna("").astype(str).str.strip().str.upper().tolist())
-
-
-def merge_without_recalculating_system_columns(edited: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
-    edited = ensure_columns(edited)
-    previous = ensure_columns(previous)
-    result = edited.copy()
-    for idx in range(len(result)):
-        if idx < len(previous):
-            for col in ["nombre_producto", "unidad_medida", "stock_disponible"]:
-                result.at[idx, col] = previous.iloc[idx][col]
-    return result
+def on_transfer_editor_change(editor_key: str):
+    editor_state = st.session_state.get(editor_key, {})
+    current = st.session_state.get("transfer_items", empty_items())
+    merged = apply_data_editor_state(current, editor_state, ITEM_COLUMNS, default_row)
+    st.session_state.transfer_items = enrich_items(merged, recalc_stock=False)
 
 
 def validate_items(df: pd.DataFrame):
     errors = []
     valid = []
-    df = enrich_items(df)
+    df = enrich_items(df, recalc_stock=True)
+    st.session_state.transfer_items = df
 
     for idx, row in df.iterrows():
         fila = idx + 1
@@ -255,7 +250,6 @@ if "transfer_items" not in st.session_state:
     st.session_state.transfer_items = empty_items()
 if "transfer_valid_items" not in st.session_state:
     st.session_state.transfer_valid_items = []
-
 if "transfer_editor_version" not in st.session_state:
     st.session_state.transfer_editor_version = 0
 
@@ -274,14 +268,13 @@ with col2:
     texto_cabecera = st.text_input("Texto de cabecera", placeholder="Opcional")
 
 st.subheader("Datos de contenido")
-st.info("Completa código, ubicación origen, cantidad y ubicación destino. El nombre, unidad y stock disponible se completan automáticamente.")
+st.info("Pega desde Excel en bloques. Recomendado: SKU | Lote | Origen | Cantidad | Destino | Texto.")
 
-editor_key = f"transfer_editor_{st.session_state.transfer_editor_version}"
-editor_data = enrich_items(st.session_state.transfer_items, recalc_stock=False)
-previous_transfer_items = editor_data.copy()
+editor_key = f"{EDITOR_BASE_KEY}_{st.session_state.transfer_editor_version}"
+st.session_state.transfer_items = enrich_items(st.session_state.transfer_items, recalc_stock=False)
 
-edited = st.data_editor(
-    editor_data,
+st.data_editor(
+    st.session_state.transfer_items,
     num_rows="dynamic",
     use_container_width=True,
     hide_index=True,
@@ -291,27 +284,17 @@ edited = st.data_editor(
         "codigo_producto": st.column_config.TextColumn("Código producto"),
         "lote": st.column_config.TextColumn("Lote"),
         "codigo_ubicacion_origen": st.column_config.TextColumn("Ubicación actual"),
-        "cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.0, step=1.0),
+        "cantidad": st.column_config.TextColumn("Cantidad", help="Puedes pegar cantidades desde Excel; se validan al verificar."),
         "codigo_ubicacion_destino": st.column_config.TextColumn("Ubicación destino"),
         "texts": st.column_config.TextColumn("Texto referencia", width="large"),
         "nombre_producto": st.column_config.TextColumn("Nombre producto"),
         "unidad_medida": st.column_config.TextColumn("UM"),
-        "stock_disponible": st.column_config.NumberColumn("Stock disponible"),
+        "stock_disponible": st.column_config.TextColumn("Stock disponible"),
     },
     key=editor_key,
+    on_change=on_transfer_editor_change,
+    args=(editor_key,),
 )
-
-# Guardamos siempre los cambios para evitar pérdida de datos al pegar desde Excel.
-# Solo regeneramos la llave del editor cuando cambia el código, porque de este
-# campo dependen nombre y unidad. El stock disponible se recalcula al verificar.
-enriched_after_edit = enrich_items(edited, recalc_stock=False)
-previous_signature = code_signature(previous_transfer_items)
-new_signature = code_signature(enriched_after_edit)
-st.session_state.transfer_items = enriched_after_edit
-
-if new_signature != previous_signature:
-    st.session_state.transfer_editor_version += 1
-    st.rerun()
 
 colv, colc, coll = st.columns([1, 1, 1])
 verificar = colv.button("Verificar", type="secondary", use_container_width=True)
@@ -330,14 +313,7 @@ if verificar or confirmar:
         st.session_state.transfer_valid_items = []
     else:
         preview = pd.DataFrame(valid)[[
-            "sku",
-            "nombre_producto",
-            "codigo_unidad",
-            "codigo_ubicacion_origen",
-            "codigo_ubicacion_destino",
-            "lote",
-            "cantidad",
-            "texto_item",
+            "sku", "nombre_producto", "codigo_unidad", "codigo_ubicacion_origen", "codigo_ubicacion_destino", "lote", "cantidad", "texto_item",
         ]]
         st.success("Transferencia verificada correctamente.")
         st.dataframe(preview, use_container_width=True, hide_index=True)
