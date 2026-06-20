@@ -188,12 +188,12 @@ def apply_global_theme() -> None:
             background: rgba(255,255,255,.055) !important;
             border: 1px solid rgba(255,255,255,.075) !important;
             border-radius: 14px !important;
-            margin: .18rem 0 .36rem 0 !important;
+            margin: .12rem 0 .26rem 0 !important;
             overflow: hidden;
         }}
 
         section[data-testid="stSidebar"] details summary {{
-            padding: .48rem .62rem !important;
+            padding: .43rem .58rem !important;
             font-weight: 820 !important;
             letter-spacing: .04em;
             text-transform: uppercase;
@@ -248,38 +248,38 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-brand {{
-            background: rgba(255,255,255,.07);
-            border: 1px solid rgba(255,255,255,.10);
+            background: linear-gradient(135deg, rgba(244,250,250,.96), rgba(221,247,243,.82));
+            border: 1px solid rgba(255,255,255,.34);
             border-radius: 20px;
             padding: .9rem .85rem;
-            margin: .15rem .05rem 1rem .05rem;
+            margin: .15rem .05rem .85rem .05rem;
             display: flex;
             gap: .75rem;
             align-items: center;
-            box-shadow: 0 14px 32px rgba(0,0,0,.12);
+            box-shadow: 0 16px 36px rgba(0,0,0,.16);
         }}
 
         .wms-sidebar-brand-logo {{
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            background: transparent;
+            width: 58px;
+            height: 58px;
+            border-radius: 18px;
+            background: radial-gradient(circle at 40% 25%, rgba(255,255,255,.88), rgba(221,247,243,.44));
             display:flex;
             align-items:center;
             justify-content:center;
             overflow:visible;
-            filter: drop-shadow(0 10px 16px rgba(0,0,0,.20));
+            filter: drop-shadow(0 10px 16px rgba(0,0,0,.18));
         }}
 
         .wms-sidebar-title {{
-            color: white;
+            color: var(--wms-navy) !important;
             font-size: 1.05rem;
             font-weight: 850;
             line-height: 1.1;
         }}
 
         .wms-sidebar-subtitle {{
-            color: rgba(255,255,255,.68) !important;
+            color: rgba(20,37,52,.74) !important;
             font-size: .78rem;
             margin-top: .15rem;
         }}
@@ -299,13 +299,9 @@ def apply_global_theme() -> None:
             height: .35rem;
         }}
 
-        .wms-session-card {{
-            background: rgba(255,255,255,.07);
-            border: 1px solid rgba(255,255,255,.11);
-            border-radius: 16px;
-            padding: .78rem .85rem;
-            margin: .65rem .05rem .55rem .05rem;
-            box-shadow: 0 12px 26px rgba(0,0,0,.10);
+        .wms-session-block {{
+            padding: .45rem .35rem .25rem .35rem;
+            margin: .45rem .05rem .25rem .05rem;
         }}
 
         .wms-session-label {{
@@ -566,12 +562,22 @@ def render_sidebar_brand() -> None:
     )
 
 
+GROUP_ICONS = {
+    "Maestros": "▣",
+    "Ingresos": "↓",
+    "Salidas": "↗",
+    "Consultas": "⌕",
+    "Reportes": "▥",
+}
+
+
 def render_sidebar_nav(groups: Iterable[tuple[str, list[dict]]]) -> None:
     """Renderiza grupos del menú como desplegables contraídos por defecto."""
     for group_name, items in groups:
         if not items:
             continue
-        with st.expander(group_name, expanded=False):
+        group_icon = GROUP_ICONS.get(group_name, "▸")
+        with st.expander(f"{group_icon} {group_name}", expanded=False):
             for item in items:
                 st.page_link(
                     item["path"],
