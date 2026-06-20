@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+from src.editor_utils import apply_data_editor_state
 from src.movimientos import crear_pedido
 from src.queries import get_cuentas, get_next_pedido_number, get_productos_activos, get_pedidos_resumen, get_pedido_detalle
 from src.session import current_user_id
@@ -23,8 +24,10 @@ DISPLAY_COLUMNS = [
     "unidad_medida",
 ]
 
+EDITOR_BASE_KEY = "pedido_editor"
+
 st.title("📝 Pedidos")
-st.caption("Creación de pedidos de insumos con cabecera y posiciones, similar al flujo de entrada tipo MIGO.")
+st.caption("Creación de pedidos de insumos con cabecera y posiciones, similar al flujo tipo MIGO.")
 
 if "msg_pedido" in st.session_state:
     st.success(st.session_state.pop("msg_pedido"))
@@ -60,18 +63,19 @@ def parse_qty(value) -> float:
     return float(value_text)
 
 
-def empty_items(rows: int = 8) -> pd.DataFrame:
-    return pd.DataFrame(
-        [{"codigo_producto": "", "nombre_producto": "", "unidad_medida": "", "cantidad": 0.0, "texts": ""} for _ in range(rows)],
-        columns=ITEM_COLUMNS,
-    )
+def default_row() -> dict:
+    return {"codigo_producto": "", "nombre_producto": "", "unidad_medida": "", "cantidad": "", "texts": ""}
+
+
+def empty_items(rows: int = 12) -> pd.DataFrame:
+    return pd.DataFrame([default_row() for _ in range(rows)], columns=ITEM_COLUMNS)
 
 
 def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col in ITEM_COLUMNS:
         if col not in df.columns:
-            df[col] = 0.0 if col == "cantidad" else ""
+            df[col] = default_row().get(col, "")
     return df[ITEM_COLUMNS]
 
 
@@ -85,15 +89,17 @@ def enrich_items(df: pd.DataFrame) -> pd.DataFrame:
             "codigo_producto": codigo,
             "nombre_producto": clean_text(product["nombre_producto"]) if product is not None else "",
             "unidad_medida": clean_text(product["codigo_unidad"]) if product is not None else "",
-            "cantidad": row.get("cantidad", 0.0),
+            "cantidad": clean_text(row.get("cantidad")),
             "texts": clean_text(row.get("texts")),
         })
     return pd.DataFrame(rows, columns=ITEM_COLUMNS)
 
 
-def code_signature(df: pd.DataFrame) -> tuple:
-    df = ensure_columns(df)
-    return tuple(df["codigo_producto"].fillna("").astype(str).str.strip().str.upper().tolist())
+def on_pedido_editor_change(editor_key: str):
+    editor_state = st.session_state.get(editor_key, {})
+    current = st.session_state.get("pedido_items", empty_items())
+    merged = apply_data_editor_state(current, editor_state, ITEM_COLUMNS, default_row)
+    st.session_state.pedido_items = enrich_items(merged)
 
 
 def validate_items(df: pd.DataFrame):
@@ -151,7 +157,6 @@ if "pedido_nro" not in st.session_state:
         st.session_state.pedido_nro = get_next_pedido_number()
     except Exception:
         st.session_state.pedido_nro = "P000000001"
-
 if "pedido_editor_version" not in st.session_state:
     st.session_state.pedido_editor_version = 0
 
@@ -191,14 +196,13 @@ with tab_crear:
     texto_cabecera = st.text_area("Texto de cabecera", placeholder="Referencia del pedido, observaciones, campaña, urgencia, etc.")
 
     st.subheader("Datos de contenido")
-    st.info("Completa el código de producto y la cantidad. El nombre y la unidad se completan automáticamente.")
+    st.info("Pega desde Excel en bloques. Recomendado: SKU | Cantidad | Texto. El nombre y la unidad se completan automáticamente.")
 
-    editor_key = f"pedido_editor_{st.session_state.pedido_editor_version}"
-    editor_data = enrich_items(st.session_state.pedido_items)
-    previous_items = editor_data.copy()
+    editor_key = f"{EDITOR_BASE_KEY}_{st.session_state.pedido_editor_version}"
+    st.session_state.pedido_items = enrich_items(st.session_state.pedido_items)
 
-    edited = st.data_editor(
-        editor_data,
+    st.data_editor(
+        st.session_state.pedido_items,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
@@ -206,22 +210,15 @@ with tab_crear:
         column_order=DISPLAY_COLUMNS,
         column_config={
             "codigo_producto": st.column_config.TextColumn("Código producto", help="SKU del producto"),
-            "cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.0, step=1.0),
+            "cantidad": st.column_config.TextColumn("Cantidad", help="Puedes pegar cantidades desde Excel; se validan al verificar."),
             "texts": st.column_config.TextColumn("Texts", help="Texto referencial por código", width="large"),
             "nombre_producto": st.column_config.TextColumn("Nombre producto"),
             "unidad_medida": st.column_config.TextColumn("UM"),
         },
         key=editor_key,
+        on_change=on_pedido_editor_change,
+        args=(editor_key,),
     )
-
-    enriched_after_edit = enrich_items(edited)
-    previous_signature = code_signature(previous_items)
-    new_signature = code_signature(enriched_after_edit)
-    st.session_state.pedido_items = enriched_after_edit
-
-    if new_signature != previous_signature:
-        st.session_state.pedido_editor_version += 1
-        st.rerun()
 
     colv, colc, coll = st.columns([1, 1, 1])
     verificar = colv.button("Verificar", type="secondary", use_container_width=True)
