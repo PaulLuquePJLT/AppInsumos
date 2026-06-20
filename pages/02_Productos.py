@@ -51,11 +51,30 @@ def _unidad_id(codigo_unidad: str) -> int:
     )
 
 
+def normalizar_flag_ean(value) -> str:
+    return "SI" if clean_upper(value) == "SI" else "NO"
+
+
+def validar_ean13(flag_aplica_ean: str, ean_serie: str) -> str | None:
+    flag = normalizar_flag_ean(flag_aplica_ean)
+    ean = clean_text(ean_serie)
+
+    if flag == "SI" and not ean:
+        return "El EAN 13 es obligatorio cuando Flag si aplica ean = SI."
+
+    if ean and (not ean.isdigit() or len(ean) != 13):
+        return "El EAN 13 debe tener exactamente 13 dígitos numéricos."
+
+    return None
+
+
 def validar_productos_excel(df: pd.DataFrame):
     required = [
         "sku",
         "nombre_producto",
         "descripcion",
+        "ean_serie",
+        "flag_aplica_ean",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -78,8 +97,12 @@ def validar_productos_excel(df: pd.DataFrame):
     valid_categories = set(categorias["nombre_categoria"].astype(str))
     valid_units = set(unidades["codigo_unidad"].astype(str).str.upper())
     existing_skus = set(productos["sku"].astype(str).str.upper()) if not productos.empty else set()
+    existing_eans = set(
+        productos["ean_serie"].fillna("").astype(str).str.strip()
+    ) - {""} if not productos.empty and "ean_serie" in productos.columns else set()
 
     file_skus = set()
+    file_eans = set()
     row_errors = []
     rows = []
     preview_rows = []
@@ -91,6 +114,8 @@ def validar_productos_excel(df: pd.DataFrame):
         sku = clean_upper(row["sku"])
         nombre_producto = clean_text(row["nombre_producto"])
         descripcion = clean_text(row["descripcion"])
+        ean_serie = clean_text(row["ean_serie"])
+        flag_aplica_ean = normalizar_flag_ean(row["flag_aplica_ean"])
         nombre_categoria = clean_text(row["nombre_categoria"])
         codigo_unidad = clean_upper(row["codigo_unidad"])
 
@@ -109,6 +134,20 @@ def validar_productos_excel(df: pd.DataFrame):
         if not nombre_producto:
             add_error(row_errors, excel_row, "nombre_producto", "El nombre del producto es obligatorio.")
             has_error = True
+
+        ean_error = validar_ean13(flag_aplica_ean, ean_serie)
+        if ean_error:
+            add_error(row_errors, excel_row, "ean_serie", ean_error)
+            has_error = True
+        elif ean_serie:
+            if ean_serie in existing_eans:
+                add_error(row_errors, excel_row, "ean_serie", "El EAN 13 ya existe en la base de datos.")
+                has_error = True
+            elif ean_serie in file_eans:
+                add_error(row_errors, excel_row, "ean_serie", "El EAN 13 está duplicado en el archivo.")
+                has_error = True
+            else:
+                file_eans.add(ean_serie)
 
         if nombre_categoria not in valid_categories:
             add_error(row_errors, excel_row, "nombre_categoria", "La categoría no existe o está inactiva.")
@@ -144,6 +183,8 @@ def validar_productos_excel(df: pd.DataFrame):
                 "sku": sku,
                 "nombre_producto": nombre_producto,
                 "descripcion": descripcion,
+                "ean_serie": ean_serie,
+                "flag_aplica_ean": flag_aplica_ean,
                 "id_categoria": id_categoria,
                 "id_unidad": id_unidad,
                 "stock_minimo": stock_minimo,
@@ -155,6 +196,8 @@ def validar_productos_excel(df: pd.DataFrame):
                 "sku": sku,
                 "nombre_producto": nombre_producto,
                 "descripcion": descripcion,
+                "ean_serie": ean_serie,
+                "flag_aplica_ean": flag_aplica_ean,
                 "nombre_categoria": nombre_categoria,
                 "codigo_unidad": codigo_unidad,
                 "stock_minimo": stock_minimo,
@@ -184,6 +227,11 @@ with tab_crear:
             sku = st.text_input("SKU").strip().upper()
             nombre_producto = st.text_input("Nombre del producto").strip()
             descripcion = st.text_area("Descripción").strip()
+            col_ean1, col_ean2 = st.columns([1.2, 1])
+            with col_ean1:
+                ean_serie = st.text_input("EAN 13", placeholder="Ejemplo: 7751234567890").strip()
+            with col_ean2:
+                flag_aplica_ean = st.selectbox("Flag si aplica ean", ["NO", "SI"])
             categoria = st.selectbox("Categoría", categorias["nombre_categoria"].tolist())
             unidad = st.selectbox("Unidad de medida", unidades["codigo_unidad"].tolist())
             stock_minimo = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
@@ -194,6 +242,8 @@ with tab_crear:
         if submitted:
             if not sku or not nombre_producto:
                 st.error("Completa SKU y nombre del producto.")
+            elif validar_ean13(flag_aplica_ean, ean_serie):
+                st.error(validar_ean13(flag_aplica_ean, ean_serie))
             else:
                 try:
                     insert_producto(
@@ -205,6 +255,8 @@ with tab_crear:
                         stock_minimo,
                         stock_maximo,
                         int(requiere_lote),
+                        ean_serie,
+                        flag_aplica_ean,
                     )
                     st.session_state["msg_producto"] = "Producto agregado correctamente."
                     st.rerun()
@@ -229,6 +281,13 @@ with tab_editar:
             sku_edit = st.text_input("SKU", value=str(selected["sku"]))
             nombre_edit = st.text_input("Nombre del producto", value=str(selected["nombre_producto"]))
             descripcion_edit = st.text_area("Descripción", value=clean_text(selected["descripcion"]))
+            col_ean1, col_ean2 = st.columns([1.2, 1])
+            with col_ean1:
+                ean_edit = st.text_input("EAN 13", value=clean_text(selected.get("ean_serie", "")))
+            with col_ean2:
+                flag_options = ["NO", "SI"]
+                flag_current = normalizar_flag_ean(selected.get("flag_aplica_ean", "NO"))
+                flag_edit = st.selectbox("Flag si aplica ean", flag_options, index=flag_options.index(flag_current))
 
             categoria_edit = st.selectbox(
                 "Categoría",
@@ -266,6 +325,10 @@ with tab_editar:
             eliminar = col_b.form_submit_button("Eliminar / desactivar")
 
         if guardar:
+            ean_error = validar_ean13(flag_edit, ean_edit)
+            if ean_error:
+                st.error(ean_error)
+                st.stop()
             try:
                 update_producto(
                     int(selected["id_producto"]),
@@ -278,6 +341,8 @@ with tab_editar:
                     stock_max_edit,
                     int(requiere_lote_edit),
                     int(activo_edit),
+                    ean_edit,
+                    flag_edit,
                 )
                 st.session_state["msg_producto"] = "Producto actualizado correctamente."
                 st.rerun()
@@ -302,6 +367,8 @@ with tab_carga:
         "sku",
         "nombre_producto",
         "descripcion",
+        "ean_serie",
+        "flag_aplica_ean",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -313,6 +380,8 @@ with tab_carga:
         "sku": "FILM-STRETCH-050CM",
         "nombre_producto": "Film stretch 50 cm",
         "descripcion": "Rollo de film para embalaje",
+        "ean_serie": "",
+        "flag_aplica_ean": "NO",
         "nombre_categoria": categorias["nombre_categoria"].iloc[0] if not categorias.empty else "Embalaje",
         "codigo_unidad": unidades["codigo_unidad"].iloc[0] if not unidades.empty else "RLL",
         "stock_minimo": 10,
