@@ -22,6 +22,19 @@ ITEM_COLUMNS = [
     "requiere_lote",
 ]
 
+# Orden visual pensado para pegar desde Excel: primero campos editables,
+# luego campos informativos calculados por código.
+DISPLAY_COLUMNS = [
+    "codigo_producto",
+    "cantidad",
+    "lote",
+    "codigo_ubicacion_destino",
+    "texts",
+    "nombre_producto",
+    "unidad_medida",
+    "requiere_lote",
+]
+
 st.markdown('<div class="wms-page-kicker">Ingresos</div>', unsafe_allow_html=True)
 st.title("➕ Entrada de mercancías")
 st.markdown('<div class="wms-soft-banner">Flujo tipo MIGO: cabecera, posiciones, verificación y contabilización en una sola transacción.</div>', unsafe_allow_html=True)
@@ -275,6 +288,9 @@ if "entrada_migo_items" not in st.session_state:
 if "entrada_migo_valid_items" not in st.session_state:
     st.session_state.entrada_migo_valid_items = []
 
+if "entrada_migo_editor_version" not in st.session_state:
+    st.session_state.entrada_migo_editor_version = 0
+
 if STAGE_LOCATION_CODE not in location_map:
     st.warning(
         f"No existe la ubicación stage {STAGE_LOCATION_CODE}. "
@@ -302,37 +318,42 @@ st.caption(
     "Nombre, unidad y requisito de lote se completan automáticamente al reconocer el código."
 )
 
+editor_key = f"entrada_migo_editor_{st.session_state.entrada_migo_editor_version}"
+editor_data = enrich_items(st.session_state.entrada_migo_items)
+previous_items = editor_data.copy()
+
 edited_items = st.data_editor(
-    st.session_state.entrada_migo_items,
+    editor_data,
     use_container_width=True,
     hide_index=True,
     num_rows="dynamic",
     disabled=["nombre_producto", "unidad_medida", "requiere_lote"],
-    column_order=ITEM_COLUMNS,
+    column_order=DISPLAY_COLUMNS,
     column_config={
         "codigo_producto": st.column_config.TextColumn("Código producto", width="medium"),
-        "nombre_producto": st.column_config.TextColumn("Nombre producto", width="large"),
-        "unidad_medida": st.column_config.TextColumn("UM", width="small"),
         "cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.0, step=1.0, format="%.2f"),
         "lote": st.column_config.TextColumn("Lote", width="medium"),
         "codigo_ubicacion_destino": st.column_config.TextColumn("Ubicación destino", width="medium"),
         "texts": st.column_config.TextColumn("Texts", width="large"),
+        "nombre_producto": st.column_config.TextColumn("Nombre producto", width="large"),
+        "unidad_medida": st.column_config.TextColumn("UM", width="small"),
         "requiere_lote": st.column_config.CheckboxColumn("Req. lote", width="small"),
     },
-    key="entrada_migo_editor",
+    key=editor_key,
 )
 
-previous_items = st.session_state.entrada_migo_items
-if code_signature(edited_items) != code_signature(previous_items):
-    st.session_state.entrada_migo_items = enrich_items(edited_items)
-    if "entrada_migo_editor" in st.session_state:
-        del st.session_state["entrada_migo_editor"]
+# Siempre guardamos lo editado por el usuario para que no se pierdan
+# cantidades, ubicaciones o textos pegados desde Excel. Solo cuando cambia
+# el código del producto regeneramos la llave del editor para refrescar
+# columnas calculadas sin borrar los valores ya pegados.
+enriched_after_edit = enrich_items(edited_items)
+previous_signature = code_signature(previous_items)
+new_signature = code_signature(enriched_after_edit)
+st.session_state.entrada_migo_items = enriched_after_edit
+
+if new_signature != previous_signature:
+    st.session_state.entrada_migo_editor_version += 1
     st.rerun()
-else:
-    st.session_state.entrada_migo_items = merge_without_recalculating_system_columns(
-        edited_items,
-        previous_items,
-    )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -345,8 +366,7 @@ limpiar = col_clear.button("Limpiar", use_container_width=True)
 if limpiar:
     st.session_state.entrada_migo_items = empty_items()
     st.session_state.entrada_migo_valid_items = []
-    if "entrada_migo_editor" in st.session_state:
-        del st.session_state["entrada_migo_editor"]
+    st.session_state.entrada_migo_editor_version += 1
     st.rerun()
 
 if verificar or contabilizar:
@@ -394,8 +414,7 @@ if verificar or contabilizar:
                 st.session_state.entrada_migo_items = empty_items()
                 st.session_state.entrada_migo_valid_items = []
                 load_entrada_reference_data.clear()
-                if "entrada_migo_editor" in st.session_state:
-                    del st.session_state["entrada_migo_editor"]
+                st.session_state.entrada_migo_editor_version += 1
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo contabilizar la entrada.")
