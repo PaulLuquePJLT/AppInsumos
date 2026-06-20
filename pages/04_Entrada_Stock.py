@@ -83,7 +83,7 @@ st.markdown(
 
 
 def now_local():
-return datetime.now(LOCAL_TZ).replace(microsecond=0)
+    return datetime.now(LOCAL_TZ).replace(microsecond=0)
 
 def clean_text(value) -> str:
     if value is None or pd.isna(value):
