@@ -19,6 +19,20 @@ ITEM_COLUMNS = [
     "texts",
 ]
 
+# Orden visual para pegado masivo desde Excel: primero campos editables,
+# luego campos informativos calculados.
+DISPLAY_COLUMNS = [
+    "codigo_producto",
+    "lote",
+    "codigo_ubicacion_origen",
+    "cantidad",
+    "codigo_ubicacion_destino",
+    "texts",
+    "nombre_producto",
+    "unidad_medida",
+    "stock_disponible",
+]
+
 st.markdown('<div class="wms-page-kicker">Consultas / Operación</div>', unsafe_allow_html=True)
 st.title("🔁 Transferencias / Cambio de ubicación")
 st.markdown('<div class="wms-soft-banner">Transferencia masiva con cabecera, tabla editable, verificación y confirmación. Los datos maestros se mantienen en sesión para evitar recargas innecesarias.</div>', unsafe_allow_html=True)
@@ -242,12 +256,14 @@ if "transfer_items" not in st.session_state:
 if "transfer_valid_items" not in st.session_state:
     st.session_state.transfer_valid_items = []
 
+if "transfer_editor_version" not in st.session_state:
+    st.session_state.transfer_editor_version = 0
+
 
 def limpiar_transferencia():
     st.session_state.transfer_items = empty_items()
     st.session_state.transfer_valid_items = []
-    if "transfer_editor" in st.session_state:
-        del st.session_state["transfer_editor"]
+    st.session_state.transfer_editor_version += 1
 
 
 st.subheader("Datos de cabecera")
@@ -260,36 +276,42 @@ with col2:
 st.subheader("Datos de contenido")
 st.info("Completa código, ubicación origen, cantidad y ubicación destino. El nombre, unidad y stock disponible se completan automáticamente.")
 
+editor_key = f"transfer_editor_{st.session_state.transfer_editor_version}"
+editor_data = enrich_items(st.session_state.transfer_items, recalc_stock=False)
+previous_transfer_items = editor_data.copy()
+
 edited = st.data_editor(
-    st.session_state.transfer_items,
+    editor_data,
     num_rows="dynamic",
     use_container_width=True,
     hide_index=True,
     disabled=["nombre_producto", "unidad_medida", "stock_disponible"],
+    column_order=DISPLAY_COLUMNS,
     column_config={
         "codigo_producto": st.column_config.TextColumn("Código producto"),
-        "nombre_producto": st.column_config.TextColumn("Nombre producto"),
-        "unidad_medida": st.column_config.TextColumn("UM"),
         "lote": st.column_config.TextColumn("Lote"),
         "codigo_ubicacion_origen": st.column_config.TextColumn("Ubicación actual"),
-        "stock_disponible": st.column_config.NumberColumn("Stock disponible"),
         "cantidad": st.column_config.NumberColumn("Cantidad", min_value=0.0, step=1.0),
         "codigo_ubicacion_destino": st.column_config.TextColumn("Ubicación destino"),
         "texts": st.column_config.TextColumn("Texto referencia", width="large"),
+        "nombre_producto": st.column_config.TextColumn("Nombre producto"),
+        "unidad_medida": st.column_config.TextColumn("UM"),
+        "stock_disponible": st.column_config.NumberColumn("Stock disponible"),
     },
-    key="transfer_editor",
+    key=editor_key,
 )
-previous_transfer_items = st.session_state.transfer_items
-if code_signature(edited) != code_signature(previous_transfer_items):
-    st.session_state.transfer_items = enrich_items(edited, recalc_stock=True)
-    if "transfer_editor" in st.session_state:
-        del st.session_state["transfer_editor"]
+
+# Guardamos siempre los cambios para evitar pérdida de datos al pegar desde Excel.
+# Solo regeneramos la llave del editor cuando cambia el código, porque de este
+# campo dependen nombre y unidad. El stock disponible se recalcula al verificar.
+enriched_after_edit = enrich_items(edited, recalc_stock=False)
+previous_signature = code_signature(previous_transfer_items)
+new_signature = code_signature(enriched_after_edit)
+st.session_state.transfer_items = enriched_after_edit
+
+if new_signature != previous_signature:
+    st.session_state.transfer_editor_version += 1
     st.rerun()
-else:
-    st.session_state.transfer_items = merge_without_recalculating_system_columns(
-        edited,
-        previous_transfer_items,
-    )
 
 colv, colc, coll = st.columns([1, 1, 1])
 verificar = colv.button("Verificar", type="secondary", use_container_width=True)
