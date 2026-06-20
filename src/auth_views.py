@@ -1,6 +1,7 @@
 import streamlit as st
 
 from src.auth import authenticate_user, request_password_reset, reset_password_with_code
+from src.theme import logo_img_html
 
 
 def _login_css():
@@ -8,22 +9,21 @@ def _login_css():
         """
         <style>
         div[data-testid="stSidebar"] {display: none;}
-
         .block-container {
             max-width: 520px;
-            padding-top: 10vh;
+            padding-top: 8vh;
         }
-
         .login-title {
             text-align: center;
-            font-size: 2.1rem;
-            font-weight: 700;
+            font-size: 2.15rem;
+            font-weight: 850;
             margin-bottom: 0.25rem;
+            color: var(--wms-navy);
+            letter-spacing: -0.04em;
         }
-
         .login-subtitle {
             text-align: center;
-            color: #6b7280;
+            color: var(--wms-muted);
             margin-bottom: 1.5rem;
         }
         </style>
@@ -44,9 +44,14 @@ def render_login_page():
     _init_auth_state()
     _login_css()
 
-    st.markdown('<div class="login-title">📦 App WMS Block B</div>', unsafe_allow_html=True)
+    logo = logo_img_html(width=106)
     st.markdown(
-        '<div class="login-subtitle">Acceso al sistema de insumos</div>',
+        f"""
+        <div class="wms-login-wrapper">
+            <div class="wms-login-logo">{logo}</div>
+            <div class="login-title">App WMS Block B</div>
+            <div class="login-subtitle">Gestión de insumos, stock y operaciones logísticas</div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -95,11 +100,19 @@ def render_login_page():
                     )
                     st.rerun()
                 except Exception as exc:
-                    st.error(
-                        "No se pudo enviar el correo. "
-                        "Revisa la configuración SMTP en Streamlit Secrets."
-                    )
-                    st.exception(exc)
+                    error_text = str(exc)
+                    if "Username and Password not accepted" in error_text or "535" in error_text:
+                        st.error(
+                            "El servidor SMTP rechazó las credenciales. "
+                            "Si usas Gmail, utiliza una contraseña de aplicación."
+                        )
+                    else:
+                        st.error(
+                            "No se pudo enviar el correo. "
+                            "Revisa la configuración SMTP en Streamlit Secrets."
+                        )
+                    with st.expander("Detalle técnico"):
+                        st.code(error_text)
 
         if st.button("Volver al login", use_container_width=True):
             st.session_state.auth_mode = "login"
@@ -146,3 +159,6 @@ def render_login_page():
         if col2.button("Volver al login", use_container_width=True):
             st.session_state.auth_mode = "login"
             st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
