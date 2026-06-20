@@ -19,15 +19,19 @@ ITEM_COLUMNS = [
     "texts",
 ]
 
+st.markdown('<div class="wms-page-kicker">Consultas / Operación</div>', unsafe_allow_html=True)
 st.title("🔁 Transferencias / Cambio de ubicación")
-st.caption("Transferencia masiva con cabecera, tabla editable, verificación y confirmación.")
+st.markdown('<div class="wms-soft-banner">Transferencia masiva con cabecera, tabla editable, verificación y confirmación. Los datos maestros se mantienen en sesión para evitar recargas innecesarias.</div>', unsafe_allow_html=True)
 
 if "msg_transferencia" in st.session_state:
     st.success(st.session_state.pop("msg_transferencia"))
 
-productos = get_productos_activos()
-ubicaciones = get_ubicaciones()
-stock = get_stock_para_transferencia()
+@st.cache_data(ttl=90, show_spinner=False)
+def load_transfer_reference_data():
+    return get_productos_activos(), get_ubicaciones(), get_stock_para_transferencia()
+
+
+productos, ubicaciones, stock = load_transfer_reference_data()
 
 if productos.empty:
     st.warning("Primero registra productos activos.")
@@ -112,7 +116,7 @@ def get_available(codigo_producto: str, codigo_ubicacion: str, lote):
     return float(rows["cantidad_disponible"].sum())
 
 
-def enrich_items(df: pd.DataFrame) -> pd.DataFrame:
+def enrich_items(df: pd.DataFrame, recalc_stock: bool = True) -> pd.DataFrame:
     df = ensure_columns(df)
     rows = []
     for _, row in df.iterrows():
@@ -121,18 +125,35 @@ def enrich_items(df: pd.DataFrame) -> pd.DataFrame:
         destino = clean_upper(row.get("codigo_ubicacion_destino"))
         lote = clean_upper(row.get("lote"))
         product = product_map.get(codigo)
+        stock_disponible = get_available(codigo, origen, lote) if recalc_stock else row.get("stock_disponible", 0.0)
         rows.append({
             "codigo_producto": codigo,
             "nombre_producto": clean_text(product["nombre_producto"]) if product is not None else "",
             "unidad_medida": clean_text(product["codigo_unidad"]) if product is not None else "",
             "lote": lote,
             "codigo_ubicacion_origen": origen,
-            "stock_disponible": get_available(codigo, origen, lote),
+            "stock_disponible": stock_disponible,
             "cantidad": row.get("cantidad", 0.0),
             "codigo_ubicacion_destino": destino,
             "texts": clean_text(row.get("texts")),
         })
     return pd.DataFrame(rows, columns=ITEM_COLUMNS)
+
+
+def code_signature(df: pd.DataFrame) -> tuple:
+    df = ensure_columns(df)
+    return tuple(df["codigo_producto"].fillna("").astype(str).str.strip().str.upper().tolist())
+
+
+def merge_without_recalculating_system_columns(edited: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
+    edited = ensure_columns(edited)
+    previous = ensure_columns(previous)
+    result = edited.copy()
+    for idx in range(len(result)):
+        if idx < len(previous):
+            for col in ["nombre_producto", "unidad_medida", "stock_disponible"]:
+                result.at[idx, col] = previous.iloc[idx][col]
+    return result
 
 
 def validate_items(df: pd.DataFrame):
@@ -225,6 +246,8 @@ if "transfer_valid_items" not in st.session_state:
 def limpiar_transferencia():
     st.session_state.transfer_items = empty_items()
     st.session_state.transfer_valid_items = []
+    if "transfer_editor" in st.session_state:
+        del st.session_state["transfer_editor"]
 
 
 st.subheader("Datos de cabecera")
@@ -238,7 +261,7 @@ st.subheader("Datos de contenido")
 st.info("Completa código, ubicación origen, cantidad y ubicación destino. El nombre, unidad y stock disponible se completan automáticamente.")
 
 edited = st.data_editor(
-    enrich_items(st.session_state.transfer_items),
+    st.session_state.transfer_items,
     num_rows="dynamic",
     use_container_width=True,
     hide_index=True,
@@ -256,7 +279,17 @@ edited = st.data_editor(
     },
     key="transfer_editor",
 )
-st.session_state.transfer_items = enrich_items(edited)
+previous_transfer_items = st.session_state.transfer_items
+if code_signature(edited) != code_signature(previous_transfer_items):
+    st.session_state.transfer_items = enrich_items(edited, recalc_stock=True)
+    if "transfer_editor" in st.session_state:
+        del st.session_state["transfer_editor"]
+    st.rerun()
+else:
+    st.session_state.transfer_items = merge_without_recalculating_system_columns(
+        edited,
+        previous_transfer_items,
+    )
 
 colv, colc, coll = st.columns([1, 1, 1])
 verificar = colv.button("Verificar", type="secondary", use_container_width=True)
@@ -297,6 +330,7 @@ if verificar or confirmar:
                     items=valid,
                 )
                 limpiar_transferencia()
+                load_transfer_reference_data.clear()
                 st.session_state["msg_transferencia"] = f"Transferencia contabilizada. Movimiento {id_movimiento}."
                 st.rerun()
             except Exception as exc:
