@@ -548,13 +548,18 @@ def apply_login_theme() -> None:
 
 def render_sidebar_brand() -> None:
     logo = logo_img_html(width=54)
+
     st.markdown(
         f"""
         <div class="wms-sidebar-brand">
             <div class="wms-sidebar-brand-logo">{logo}</div>
             <div>
-                <div class="wms-sidebar-title">App WMS Block B</div>
-                <div class="wms-sidebar-subtitle">Insumos • Stock</div>
+                <div class="wms-sidebar-title" style="color:#66BB6A;">
+                    App WMS Block B
+                </div>
+                <div class="wms-sidebar-subtitle" style="color:#A5D6A7;">
+                    Insumos • Stock • Operaciones
+                </div>
             </div>
         </div>
         """,
