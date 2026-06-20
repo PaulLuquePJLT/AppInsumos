@@ -1479,3 +1479,37 @@ def get_stock_para_transferencia():
           AND su.cantidad_actual > 0
         ORDER BY p.sku, ub.codigo_ubicacion, su.lote
     """)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard ejecutivo
+# ---------------------------------------------------------------------------
+
+def get_dashboard_movimientos():
+    return read_dataframe("""
+        SELECT
+            id_movimiento,
+            tipo_movimiento,
+            fecha_movimiento,
+            CAST(fecha_movimiento AS DATE) AS fecha_movimiento_dia,
+            codigo_cuenta,
+            nombre_cuenta,
+            ruc_proveedor,
+            razon_social_proveedor,
+            sku,
+            nombre_producto,
+            ISNULL(codigo_unidad, '') AS codigo_unidad,
+            ubicacion_origen,
+            ubicacion_destino,
+            CAST(ISNULL(cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
+            lote,
+            referencia,
+            observacion,
+            texto_item,
+            usuario_login,
+            usuario_nombre,
+            estado
+        FROM dbo.vw_movimientos
+        WHERE fecha_movimiento IS NOT NULL
+        ORDER BY fecha_movimiento DESC, id_movimiento DESC
+    """)
