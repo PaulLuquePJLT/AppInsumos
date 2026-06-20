@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 from zoneinfo import ZoneInfo
 LOCAL_TZ = ZoneInfo("America/Lima") 
 
