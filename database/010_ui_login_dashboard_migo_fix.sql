@@ -291,5 +291,5 @@ LEFT JOIN dbo.usuarios u ON u.id_usuario = m.id_usuario;
 ');
 
 SELECT
-    ''OK - 010 aplicado correctamente'' AS resultado,
+    'OK - 010 aplicado correctamente' AS resultado,
     dbo.fn_now_bogota_lima() AS fecha_hora_bogota_lima;
