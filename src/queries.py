@@ -1486,30 +1486,71 @@ def get_stock_para_transferencia():
 # ---------------------------------------------------------------------------
 
 def get_dashboard_movimientos():
-    return read_dataframe("""
+    query_view = """
         SELECT
             id_movimiento,
             tipo_movimiento,
             fecha_movimiento,
             CAST(fecha_movimiento AS DATE) AS fecha_movimiento_dia,
-            codigo_cuenta,
-            nombre_cuenta,
-            ruc_proveedor,
-            razon_social_proveedor,
-            sku,
-            nombre_producto,
+            ISNULL(codigo_cuenta, '') AS codigo_cuenta,
+            ISNULL(nombre_cuenta, '') AS nombre_cuenta,
+            ISNULL(ruc_proveedor, '') AS ruc_proveedor,
+            ISNULL(razon_social_proveedor, '') AS razon_social_proveedor,
+            ISNULL(sku, '') AS sku,
+            ISNULL(nombre_producto, '') AS nombre_producto,
             ISNULL(codigo_unidad, '') AS codigo_unidad,
-            ubicacion_origen,
-            ubicacion_destino,
+            ISNULL(ubicacion_origen, '') AS ubicacion_origen,
+            ISNULL(ubicacion_destino, '') AS ubicacion_destino,
             CAST(ISNULL(cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
-            lote,
-            referencia,
-            observacion,
-            texto_item,
-            usuario_login,
-            usuario_nombre,
+            ISNULL(lote, '') AS lote,
+            ISNULL(referencia, '') AS referencia,
+            ISNULL(observacion, '') AS observacion,
+            ISNULL(texto_item, '') AS texto_item,
+            ISNULL(usuario_login, '') AS usuario_login,
+            ISNULL(usuario_nombre, '') AS usuario_nombre,
             estado
         FROM dbo.vw_movimientos
         WHERE fecha_movimiento IS NOT NULL
         ORDER BY fecha_movimiento DESC, id_movimiento DESC
-    """)
+    """
+
+    query_fallback = """
+        SELECT
+            m.id_movimiento,
+            m.tipo_movimiento,
+            m.fecha_movimiento,
+            CAST(m.fecha_movimiento AS DATE) AS fecha_movimiento_dia,
+            ISNULL(c.codigo_cuenta, '') AS codigo_cuenta,
+            ISNULL(c.nombre_cuenta, '') AS nombre_cuenta,
+            ISNULL(pr.ruc, '') AS ruc_proveedor,
+            ISNULL(pr.razon_social, '') AS razon_social_proveedor,
+            ISNULL(p.sku, '') AS sku,
+            ISNULL(p.nombre_producto, '') AS nombre_producto,
+            ISNULL(um.codigo_unidad, '') AS codigo_unidad,
+            ISNULL(ub_origen.codigo_ubicacion, '') AS ubicacion_origen,
+            ISNULL(ub_destino.codigo_ubicacion, '') AS ubicacion_destino,
+            CAST(ISNULL(md.cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
+            ISNULL(md.lote, '') AS lote,
+            ISNULL(m.referencia, '') AS referencia,
+            ISNULL(m.observacion, '') AS observacion,
+            ISNULL(md.observacion, '') AS texto_item,
+            ISNULL(u.usuario_login, '') AS usuario_login,
+            LTRIM(RTRIM(ISNULL(u.nombres, '') + ' ' + ISNULL(u.apellidos, ''))) AS usuario_nombre,
+            m.estado
+        FROM dbo.movimientos m
+        LEFT JOIN dbo.movimiento_detalle md ON md.id_movimiento = m.id_movimiento
+        LEFT JOIN dbo.productos p ON p.id_producto = md.id_producto
+        LEFT JOIN dbo.unidades_medida um ON um.id_unidad = p.id_unidad
+        LEFT JOIN dbo.ubicaciones ub_origen ON ub_origen.id_ubicacion = md.id_ubicacion_origen
+        LEFT JOIN dbo.ubicaciones ub_destino ON ub_destino.id_ubicacion = md.id_ubicacion_destino
+        LEFT JOIN dbo.cuentas_logisticas c ON c.id_cuenta = m.id_cuenta
+        LEFT JOIN dbo.proveedores pr ON pr.id_proveedor = m.id_proveedor
+        LEFT JOIN dbo.usuarios u ON u.id_usuario = m.id_usuario
+        WHERE m.fecha_movimiento IS NOT NULL
+        ORDER BY m.fecha_movimiento DESC, m.id_movimiento DESC
+    """
+
+    try:
+        return read_dataframe(query_view)
+    except Exception:
+        return read_dataframe(query_fallback)
