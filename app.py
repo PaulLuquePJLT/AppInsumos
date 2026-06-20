@@ -4,18 +4,22 @@ import streamlit as st
 
 from src.auth import ensure_default_admin
 from src.auth_views import render_login_page
-from src.theme import apply_global_theme, render_sidebar_brand
+from src.theme import (
+    apply_global_theme,
+    load_page_icon,
+    render_sidebar_brand,
+    render_sidebar_nav,
+)
 
 
 st.set_page_config(
-    page_title="AppInsumos",
-    page_icon="https://i.postimg.cc/Vvtxnb2H/android-chrome-512x512-(1).png",
+    page_title="App WMS Block B",
+    page_icon=load_page_icon(),
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 apply_global_theme()
-
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -53,7 +57,7 @@ if default_admin_password:
 login_page = st.Page(
     render_login_page,
     title="Login",
-    icon="🔐",
+    icon=":material/login:",
 )
 
 if not st.session_state.authenticated:
@@ -66,75 +70,98 @@ user = st.session_state.auth_user or {}
 is_admin = bool(user.get("is_admin"))
 
 
-def logout_page():
-    st.title("Cerrar sesión")
-    st.write("¿Deseas cerrar tu sesión actual?")
-
-    if st.button("Cerrar sesión", type="primary"):
-        for key in [
-            "authenticated",
-            "auth_user",
-            "auth_mode",
-            "reset_identifier",
-        ]:
-            if key in st.session_state:
-                del st.session_state[key]
-
-        st.rerun()
-
-
-pages = {}
+MENU_GROUPS: list[tuple[str, list[dict]]] = []
 
 if is_admin:
-    pages["Maestros"] = [
-        st.Page("pages/02_Productos.py", title="Productos", icon="🧾"),
-        st.Page("pages/03_Ubicaciones.py", title="Ubicaciones", icon="📍"),
-        st.Page("pages/13_Proveedores.py", title="Proveedores", icon="🚚"),
-        st.Page("pages/10_Areas_Logisticas.py", title="Áreas Logísticas", icon="🏢"),
-        st.Page(
-            "pages/11_Categorias_Unidades.py",
-            title="Categorías y Unidades",
-            icon="🗂️",
-        ),
-        st.Page("pages/12_Usuarios.py", title="Usuarios", icon="👤"),
-    ]
+    MENU_GROUPS.append((
+        "Maestros",
+        [
+            {"path": "pages/02_Productos.py", "title": "Productos", "icon": ":material/inventory_2:"},
+            {"path": "pages/03_Ubicaciones.py", "title": "Ubicaciones", "icon": ":material/location_on:"},
+            {"path": "pages/13_Proveedores.py", "title": "Proveedores", "icon": ":material/local_shipping:"},
+            {"path": "pages/10_Areas_Logisticas.py", "title": "Áreas Logísticas", "icon": ":material/apartment:"},
+            {"path": "pages/11_Categorias_Unidades.py", "title": "Categorías y Unidades", "icon": ":material/category:"},
+            {"path": "pages/12_Usuarios.py", "title": "Usuarios", "icon": ":material/manage_accounts:"},
+        ],
+    ))
 
-pages["Ingresos"] = [
-    st.Page("pages/04_Entrada_Stock.py", title="Entrada Stock", icon="➕"),
-]
+MENU_GROUPS.extend([
+    (
+        "Ingresos",
+        [
+            {"path": "pages/04_Entrada_Stock.py", "title": "Entrada Stock", "icon": ":material/move_to_inbox:"},
+        ],
+    ),
+    (
+        "Salidas",
+        [
+            {"path": "pages/14_Pedidos.py", "title": "Pedidos", "icon": ":material/request_quote:"},
+            {"path": "pages/15_Picking.py", "title": "Picking", "icon": ":material/assignment:"},
+            {"path": "pages/16_Atencion_Picking.py", "title": "Atención de Picking", "icon": ":material/task_alt:"},
+            {"path": "pages/05_Salida_Cuenta.py", "title": "Salida Cuenta", "icon": ":material/output:"},
+        ],
+    ),
+    (
+        "Consultas",
+        [
+            {"path": "pages/06_Transferencias.py", "title": "Transferencias", "icon": ":material/swap_horiz:"},
+            {"path": "pages/07_Stock.py", "title": "Stock", "icon": ":material/package_2:"},
+            {"path": "pages/08_Movimientos.py", "title": "Movimientos", "icon": ":material/receipt_long:"},
+            {"path": "pages/09_Stock_Cuentas.py", "title": "Stock Cuentas", "icon": ":material/business_center:"},
+        ],
+    ),
+    (
+        "Reportes",
+        [
+            {"path": "pages/01_Dashboard.py", "title": "Dashboard", "icon": ":material/monitoring:", "default": True},
+        ],
+    ),
+])
 
-pages["Salidas"] = [
-    st.Page("pages/14_Pedidos.py", title="Pedidos", icon="📝"),
-    st.Page("pages/15_Picking.py", title="Picking", icon="📋"),
-    st.Page("pages/16_Atencion_Picking.py", title="Atención de Picking", icon="✅"),
-    st.Page("pages/05_Salida_Cuenta.py", title="Salida Cuenta", icon="➖"),
-]
 
-pages["Consultas"] = [
-    st.Page("pages/06_Transferencias.py", title="Transferencias", icon="🔁"),
-    st.Page("pages/07_Stock.py", title="Stock", icon="📦"),
-    st.Page("pages/08_Movimientos.py", title="Movimientos", icon="📜"),
-    st.Page("pages/09_Stock_Cuentas.py", title="Stock Cuentas", icon="💼"),
-]
+def _page_objects_from_menu(groups: list[tuple[str, list[dict]]]) -> dict:
+    pages: dict[str, list] = {}
+    for group_name, items in groups:
+        pages[group_name] = [
+            st.Page(
+                item["path"],
+                title=item["title"],
+                icon=item.get("icon"),
+                default=bool(item.get("default", False)),
+            )
+            for item in items
+        ]
+    return pages
 
-pages["Reportes"] = [
-    st.Page("pages/01_Dashboard.py", title="Dashboard", icon="📊", default=True),
-]
 
-pages["Sesión"] = [
-    st.Page(logout_page, title="Cerrar sesión", icon="🚪"),
-]
+def _logout() -> None:
+    for key in [
+        "authenticated",
+        "auth_user",
+        "auth_mode",
+        "reset_identifier",
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+
+# La navegación se registra en modo oculto para poder controlar totalmente
+# el orden, branding e iconografía del sidebar.
+pg = st.navigation(_page_objects_from_menu(MENU_GROUPS), position="hidden")
 
 with st.sidebar:
     render_sidebar_brand()
+    render_sidebar_nav(MENU_GROUPS)
     st.divider()
-    st.caption("Sesión activa")
 
     full_name = f"{user.get('nombres', '')} {user.get('apellidos', '')}".strip()
-
+    st.markdown('<div class="wms-nav-section">Sesión</div>', unsafe_allow_html=True)
+    st.caption("Sesión activa")
     st.write(f"**{full_name or user.get('usuario_login', '')}**")
     st.caption(f"Rol: {user.get('rol', '')}")
 
-pg = st.navigation(pages, position="sidebar", expanded=True)
-pg.run()
+    if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
+        _logout()
 
+pg.run()
