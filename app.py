@@ -155,12 +155,22 @@ with st.sidebar:
     render_sidebar_nav(MENU_GROUPS)
 
     full_name = f"{user.get('nombres', '')} {user.get('apellidos', '')}".strip()
-    with st.expander("Sesión", expanded=False):
-        st.caption("Sesión activa")
-        st.write(f"**{full_name or user.get('usuario_login', '')}**")
-        st.caption(f"Rol: {user.get('rol', '')}")
+    display_name = full_name or user.get("usuario_login", "")
+    role_name = user.get("rol", "")
 
-        if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
-            _logout()
+    st.markdown(
+        f"""
+        <div class="wms-sidebar-spacer"></div>
+        <div class="wms-session-card">
+            <div class="wms-session-label">Sesión activa</div>
+            <div class="wms-session-name">{display_name}</div>
+            <div class="wms-session-role">Rol: {role_name}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
+        _logout()
 
 pg.run()
