@@ -554,7 +554,7 @@ def render_sidebar_brand() -> None:
             <div class="wms-sidebar-brand-logo">{logo}</div>
             <div>
                 <div class="wms-sidebar-title">App WMS Block B</div>
-                <div class="wms-sidebar-subtitle">Insumos • Stock • Operaciones</div>
+                <div class="wms-sidebar-subtitle">Insumos • Stock</div>
             </div>
         </div>
         """,
