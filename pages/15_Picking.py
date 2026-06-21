@@ -1,3 +1,5 @@
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
@@ -113,24 +115,57 @@ with tab_crear:
                     st.exception(exc)
 
 with tab_visualizar:
+    if "pick_fecha_inicio" not in st.session_state:
+        st.session_state.pick_fecha_inicio = date.today()
+    if "pick_fecha_fin" not in st.session_state:
+        st.session_state.pick_fecha_fin = date.today()
+    if "pick_estado" not in st.session_state:
+        st.session_state.pick_estado = ""
+
+    with st.form("form_filtros_pickings"):
+        colf1, colf2, colf3, colf4 = st.columns([1, 1, 1, .7])
+        with colf1:
+            fecha_inicio = st.date_input("Fecha inicio", value=st.session_state.pick_fecha_inicio)
+        with colf2:
+            fecha_fin = st.date_input("Fecha fin", value=st.session_state.pick_fecha_fin)
+        with colf3:
+            estado_options = ["", "LIBERADO", "LIBERADO-CORTO", "COMPLETADO", "COMPLETADO-PARCIAL", "COMPLETADO-CORTO", "CANCELADO"]
+            estado = st.selectbox(
+                "Estado",
+                estado_options,
+                index=estado_options.index(st.session_state.pick_estado) if st.session_state.pick_estado in estado_options else 0,
+                format_func=lambda x: "Todos" if x == "" else x,
+            )
+        with colf4:
+            consultar = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+    if consultar:
+        if fecha_fin < fecha_inicio:
+            st.error("La fecha fin no puede ser menor que la fecha inicio.")
+            st.stop()
+        st.session_state.pick_fecha_inicio = fecha_inicio
+        st.session_state.pick_fecha_fin = fecha_fin
+        st.session_state.pick_estado = estado
+
     try:
-        pickings = get_pickings_resumen()
+        pickings = get_pickings_resumen(
+            fecha_inicio=st.session_state.pick_fecha_inicio,
+            fecha_fin=st.session_state.pick_fecha_fin,
+            estado=st.session_state.pick_estado,
+        )
     except Exception as exc:
         st.error("No se pudo cargar pickings. Ejecuta la migración 008 en Azure SQL.")
         st.exception(exc)
         st.stop()
 
     if pickings.empty:
-        st.info("No hay pickings creados.")
+        st.info("No hay pickings para los filtros seleccionados.")
     else:
-        filtro = st.text_input("Buscar PK o estado", key="filtro_pk")
+        filtro = st.text_input("Buscar PK", key="filtro_pk")
         filtered = pickings.copy()
         if filtro.strip():
             v = filtro.strip().lower()
-            filtered = filtered[
-                filtered["nro_picking"].astype(str).str.lower().str.contains(v, na=False)
-                | filtered["estado"].astype(str).str.lower().str.contains(v, na=False)
-            ]
+            filtered = filtered[filtered["nro_picking"].astype(str).str.lower().str.contains(v, na=False)]
 
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 
