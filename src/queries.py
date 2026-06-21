@@ -2,7 +2,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.sql.elements import TextClause
 
-from src.db import get_engine
+from src.db import get_engine, run_db_with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -20,27 +20,39 @@ def _ensure_text(statement):
 
 
 def read_dataframe(query, params: dict | None = None) -> pd.DataFrame:
-    engine = get_engine()
+    sql = _ensure_text(query)
 
-    with engine.connect() as conn:
-        return pd.read_sql(_ensure_text(query), conn, params=params or {})
+    def _op():
+        engine = get_engine()
+        with engine.connect() as conn:
+            return pd.read_sql(sql, conn, params=params or {})
+
+    return run_db_with_retry(_op)
 
 
 def execute_statement(statement, params: dict | None = None) -> None:
-    engine = get_engine()
+    sql = _ensure_text(statement)
 
-    with engine.begin() as conn:
-        conn.execute(_ensure_text(statement), params or {})
+    def _op():
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(sql, params or {})
+
+    run_db_with_retry(_op)
 
 
 def execute_many(statement, rows: list[dict]) -> None:
     if not rows:
         return
 
-    engine = get_engine()
+    sql = _ensure_text(statement)
 
-    with engine.begin() as conn:
-        conn.execute(_ensure_text(statement), rows)
+    def _op():
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(sql, rows)
+
+    run_db_with_retry(_op)
 
 
 def clean_text(value):
