@@ -1,8 +1,13 @@
 import os
+import time
+from typing import Callable, TypeVar
 
 import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+T = TypeVar("T")
 
 
 def _get_secret(key: str, default=None):
@@ -61,13 +66,85 @@ def get_engine():
     return create_engine(
         url,
         pool_pre_ping=True,
-        pool_recycle=1800,
+        pool_recycle=240,
+        pool_size=3,
+        max_overflow=2,
+        pool_timeout=30,
         future=True,
+        connect_args={
+            "login_timeout": 30,
+            "timeout": 60,
+        },
     )
 
 
+def reset_engine_pool() -> None:
+    """Descarta el pool actual para forzar una conexión limpia en el siguiente intento."""
+    try:
+        engine = get_engine()
+        engine.dispose()
+    except Exception:
+        pass
+
+    try:
+        get_engine.clear()
+    except Exception:
+        pass
+
+
+def _is_retryable_db_error(exc: Exception) -> bool:
+    text_error = str(exc).lower()
+    retry_markers = [
+        "login timeout",
+        "timeout expired",
+        "connection timed out",
+        "connection is closed",
+        "closed connection",
+        "server is not currently configured",
+        "adaptive server connection failed",
+        "transport-level error",
+        "connection reset",
+        "db-lib error message 20009",
+        "db-lib error message 20003",
+        "azure sql",
+        "is not available",
+        "database is not currently available",
+    ]
+
+    return isinstance(exc, (OperationalError, InterfaceError, DBAPIError)) or any(
+        marker in text_error for marker in retry_markers
+    )
+
+
+def run_db_with_retry(operation: Callable[[], T], attempts: int = 3) -> T:
+    """Ejecuta una operación SQL con reintentos.
+
+    Esto ayuda cuando Azure SQL Serverless está pausado o el pool tiene
+    una conexión stale. Si falla, se descarta el pool y se reintenta.
+    """
+    last_exc: Exception | None = None
+    delays = [2, 5, 10]
+
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts - 1 or not _is_retryable_db_error(exc):
+                raise
+            reset_engine_pool()
+            time.sleep(delays[min(attempt, len(delays) - 1)])
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("No se pudo ejecutar la operación de base de datos.")
+
+
 def test_connection() -> bool:
-    engine = get_engine()
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT 1 AS test")).scalar_one()
-    return result == 1
+    def _op():
+        engine = get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1 AS test")).scalar_one()
+        return result == 1
+
+    return run_db_with_retry(_op)
