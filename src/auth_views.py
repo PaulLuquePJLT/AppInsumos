@@ -30,6 +30,14 @@ def render_login_page():
     _init_auth_state()
     apply_login_theme()
 
+    timeout_message = st.session_state.pop("timeout_message", None)
+    if timeout_message:
+        st.info(timeout_message)
+
+    db_warning = st.session_state.pop("db_startup_warning", None)
+    if db_warning:
+        st.warning(db_warning)
+
     if st.session_state.auth_mode == "login":
         with st.form("login_form"):
             _login_brand()
@@ -43,13 +51,25 @@ def render_login_page():
             st.rerun()
 
         if ingresar:
-            user = authenticate_user(usuario, password)
+            login_exception = False
+            try:
+                user = authenticate_user(usuario, password)
+            except Exception as exc:
+                login_exception = True
+                st.warning(
+                    "No se pudo validar el usuario en este momento. "
+                    "Si Azure SQL estaba pausado, espera unos segundos e intenta nuevamente."
+                )
+                with st.expander("Detalle técnico"):
+                    st.code(str(exc))
+                user = None
 
             if user:
                 st.session_state.authenticated = True
                 st.session_state.auth_user = user
+                st.session_state["last_activity_ts"] = __import__("time").time()
                 st.rerun()
-            else:
+            elif not login_exception:
                 st.error("Usuario o contraseña incorrectos.")
 
     elif st.session_state.auth_mode == "forgot_request":
