@@ -4,6 +4,7 @@ import base64
 from pathlib import Path
 from typing import Iterable
 
+import pandas as pd
 import streamlit as st
 
 
@@ -248,8 +249,8 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-brand {{
-            background: linear-gradient(135deg, rgba(250,255,254,.98), rgba(215,244,239,.96));
-            border: 1px solid rgba(255,255,255,.78);
+            background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(221,247,243,.92));
+            border: 1px solid rgba(221,247,243,.84);
             border-radius: 20px;
             padding: .9rem .85rem;
             margin: .15rem .05rem .85rem .05rem;
@@ -272,24 +273,16 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-title {{
-            color: #0B2F3B !important;
-            font-size: 1.02rem;
+            color: var(--wms-navy) !important;
+            font-size: 1.05rem;
             font-weight: 850;
             line-height: 1.1;
         }}
 
         .wms-sidebar-subtitle {{
-            color: #0E5663 !important;
+            color: rgba(20,37,52,.74) !important;
             font-size: .78rem;
             margin-top: .15rem;
-        }}
-
-        section[data-testid="stSidebar"] .wms-sidebar-title {{
-            color: #0B2F3B !important;
-        }}
-
-        section[data-testid="stSidebar"] .wms-sidebar-subtitle {{
-            color: #0E5663 !important;
         }}
 
         .wms-nav-section {{
@@ -576,9 +569,9 @@ def render_sidebar_brand() -> None:
 
 
 GROUP_ICONS = {
-    "Maestros": "◧",
-    "Ingresos": "↧",
-    "Salidas": "↥",
+    "Maestros": "▣",
+    "Ingresos": "↓",
+    "Salidas": "↗",
     "Consultas": "⌕",
     "Reportes": "▥",
 }
@@ -597,6 +590,56 @@ def render_sidebar_nav(groups: Iterable[tuple[str, list[dict]]]) -> None:
                     label=item["title"],
                     icon=item.get("icon"),
                 )
+
+
+def enable_auto_csv_downloads() -> None:
+    """Agrega botón CSV después de cada tabla st.dataframe/st.data_editor.
+
+    Esto permite exportar todas las tablas sin modificar manualmente cada vista.
+    En tablas editables, exporta el estado devuelto por st.data_editor.
+    """
+    if getattr(st, "_wms_csv_exporter_enabled", False):
+        return
+
+    original_dataframe = st.dataframe
+    original_data_editor = st.data_editor
+
+    def _download_df(data, prefix: str) -> None:
+        try:
+            if isinstance(data, pd.DataFrame):
+                df = data.copy()
+            else:
+                df = pd.DataFrame(data)
+
+            if df.empty:
+                return
+
+            counter = st.session_state.get("_wms_csv_export_counter", 0) + 1
+            st.session_state["_wms_csv_export_counter"] = counter
+            st.download_button(
+                "Descargar CSV",
+                data=df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"{prefix}_{counter}.csv",
+                mime="text/csv",
+                key=f"wms_auto_csv_{prefix}_{counter}",
+                icon=":material/download:",
+            )
+        except Exception:
+            pass
+
+    def dataframe_with_csv(data=None, *args, **kwargs):
+        result = original_dataframe(data, *args, **kwargs)
+        _download_df(data, "tabla_wms")
+        return result
+
+    def data_editor_with_csv(data=None, *args, **kwargs):
+        result = original_data_editor(data, *args, **kwargs)
+        _download_df(result if result is not None else data, "editor_wms")
+        return result
+
+    st.dataframe = dataframe_with_csv
+    st.data_editor = data_editor_with_csv
+    st._wms_csv_exporter_enabled = True
 
 
 def card(title: str, body_html: str = "") -> None:
