@@ -4,8 +4,10 @@ import streamlit as st
 
 from src.auth import ensure_default_admin
 from src.auth_views import render_login_page
+from src.session import clear_auth_session, enforce_session_timeout, render_idle_timeout_script
 from src.theme import (
     apply_global_theme,
+    enable_auto_csv_downloads,
     load_page_icon,
     render_sidebar_brand,
     render_sidebar_nav,
@@ -20,6 +22,18 @@ st.set_page_config(
 )
 
 apply_global_theme()
+enable_auto_csv_downloads()
+
+# Si el watchdog del navegador detectó 5 minutos de inactividad,
+# vuelve a esta URL con ?wms_timeout=1 y cerramos sesión.
+try:
+    if st.query_params.get("wms_timeout"):
+        clear_auth_session()
+        st.session_state["timeout_message"] = "Tu sesión se cerró automáticamente por 5 minutos de inactividad."
+        st.query_params.clear()
+        st.rerun()
+except Exception:
+    pass
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -48,10 +62,18 @@ except Exception:
     ).lower() in {"1", "true", "yes", "si", "sí"}
 
 if default_admin_password:
-    ensure_default_admin(
-        default_admin_password,
-        force_password_reset=force_admin_reset,
-    )
+    try:
+        ensure_default_admin(
+            default_admin_password,
+            force_password_reset=force_admin_reset,
+        )
+    except Exception:
+        # Si Azure SQL Serverless está despertando, no bloqueamos toda la app.
+        # El siguiente acceso a BD reintentará con un pool limpio.
+        st.session_state["db_startup_warning"] = (
+            "La base de datos está despertando o rechazó la primera conexión. "
+            "Intenta iniciar sesión nuevamente en unos segundos."
+        )
 
 
 login_page = st.Page(
@@ -64,6 +86,11 @@ if not st.session_state.authenticated:
     pg = st.navigation([login_page], position="hidden")
     pg.run()
     st.stop()
+
+if enforce_session_timeout(300):
+    st.rerun()
+
+render_idle_timeout_script(300)
 
 
 user = st.session_state.auth_user or {}
@@ -135,14 +162,7 @@ def _page_objects_from_menu(groups: list[tuple[str, list[dict]]]) -> dict:
 
 
 def _logout() -> None:
-    for key in [
-        "authenticated",
-        "auth_user",
-        "auth_mode",
-        "reset_identifier",
-    ]:
-        if key in st.session_state:
-            del st.session_state[key]
+    clear_auth_session()
     st.rerun()
 
 
