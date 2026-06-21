@@ -48,9 +48,3 @@ m3.metric("Stock neto cuentas", f"{filtered['cantidad_neta'].sum():,.2f}")
 
 st.dataframe(filtered, use_container_width=True, hide_index=True)
 
-st.download_button(
-    "Descargar CSV",
-    data=filtered.to_csv(index=False).encode("utf-8-sig"),
-    file_name="stock_por_cuenta.csv",
-    mime="text/csv",
-)
