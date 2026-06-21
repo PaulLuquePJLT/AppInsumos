@@ -75,6 +75,7 @@ def validar_productos_excel(df: pd.DataFrame):
         "descripcion",
         "ean_serie",
         "flag_aplica_ean",
+        "precio_unitario",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -116,6 +117,15 @@ def validar_productos_excel(df: pd.DataFrame):
         descripcion = clean_text(row["descripcion"])
         ean_serie = clean_text(row["ean_serie"])
         flag_aplica_ean = normalizar_flag_ean(row["flag_aplica_ean"])
+        try:
+            precio_unitario = to_float(row["precio_unitario"], 0.0)
+        except Exception:
+            precio_unitario = 0.0
+            add_error(row_errors, excel_row, "precio_unitario", "El precio por unidad debe ser numérico.")
+            has_error = True
+        if precio_unitario < 0:
+            add_error(row_errors, excel_row, "precio_unitario", "El precio por unidad no puede ser negativo.")
+            has_error = True
         nombre_categoria = clean_text(row["nombre_categoria"])
         codigo_unidad = clean_upper(row["codigo_unidad"])
 
@@ -185,6 +195,7 @@ def validar_productos_excel(df: pd.DataFrame):
                 "descripcion": descripcion,
                 "ean_serie": ean_serie,
                 "flag_aplica_ean": flag_aplica_ean,
+                "precio_unitario": precio_unitario,
                 "id_categoria": id_categoria,
                 "id_unidad": id_unidad,
                 "stock_minimo": stock_minimo,
@@ -198,6 +209,7 @@ def validar_productos_excel(df: pd.DataFrame):
                 "descripcion": descripcion,
                 "ean_serie": ean_serie,
                 "flag_aplica_ean": flag_aplica_ean,
+                "precio_unitario": precio_unitario,
                 "nombre_categoria": nombre_categoria,
                 "codigo_unidad": codigo_unidad,
                 "stock_minimo": stock_minimo,
@@ -232,6 +244,7 @@ with tab_crear:
                 ean_serie = st.text_input("EAN 13", placeholder="Ejemplo: 7751234567890").strip()
             with col_ean2:
                 flag_aplica_ean = st.selectbox("Flag si aplica ean", ["NO", "SI"])
+            precio_unitario = st.number_input("Precio por unidad (S/)", min_value=0.0, step=0.01, format="%.4f")
             categoria = st.selectbox("Categoría", categorias["nombre_categoria"].tolist())
             unidad = st.selectbox("Unidad de medida", unidades["codigo_unidad"].tolist())
             stock_minimo = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
@@ -255,6 +268,7 @@ with tab_crear:
                         stock_minimo,
                         stock_maximo,
                         int(requiere_lote),
+                        precio_unitario,
                         ean_serie,
                         flag_aplica_ean,
                     )
@@ -288,6 +302,14 @@ with tab_editar:
                 flag_options = ["NO", "SI"]
                 flag_current = normalizar_flag_ean(selected.get("flag_aplica_ean", "NO"))
                 flag_edit = st.selectbox("Flag si aplica ean", flag_options, index=flag_options.index(flag_current))
+
+            precio_unitario_edit = st.number_input(
+                "Precio por unidad (S/)",
+                min_value=0.0,
+                step=0.01,
+                format="%.4f",
+                value=float(selected.get("precio_unitario", 0) or 0),
+            )
 
             categoria_edit = st.selectbox(
                 "Categoría",
@@ -341,6 +363,7 @@ with tab_editar:
                     stock_max_edit,
                     int(requiere_lote_edit),
                     int(activo_edit),
+                    precio_unitario_edit,
                     ean_edit,
                     flag_edit,
                 )
@@ -369,6 +392,7 @@ with tab_carga:
         "descripcion",
         "ean_serie",
         "flag_aplica_ean",
+        "precio_unitario",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -382,6 +406,7 @@ with tab_carga:
         "descripcion": "Rollo de film para embalaje",
         "ean_serie": "",
         "flag_aplica_ean": "NO",
+        "precio_unitario": 0.00,
         "nombre_categoria": categorias["nombre_categoria"].iloc[0] if not categorias.empty else "Embalaje",
         "codigo_unidad": unidades["codigo_unidad"].iloc[0] if not unidades.empty else "RLL",
         "stock_minimo": 10,
