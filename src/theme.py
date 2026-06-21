@@ -248,15 +248,15 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-brand {{
-            background: linear-gradient(135deg, rgba(244,250,250,.96), rgba(221,247,243,.82));
-            border: 1px solid rgba(255,255,255,.34);
+            background: linear-gradient(135deg, rgba(250,255,254,.98), rgba(215,244,239,.96));
+            border: 1px solid rgba(255,255,255,.78);
             border-radius: 20px;
             padding: .9rem .85rem;
             margin: .15rem .05rem .85rem .05rem;
             display: flex;
             gap: .75rem;
             align-items: center;
-            box-shadow: 0 16px 36px rgba(0,0,0,.16);
+            box-shadow: 0 16px 36px rgba(0,0,0,.13);
         }}
 
         .wms-sidebar-brand-logo {{
@@ -272,16 +272,24 @@ def apply_global_theme() -> None:
         }}
 
         .wms-sidebar-title {{
-            color: var(--wms-navy) !important;
-            font-size: 1.05rem;
+            color: #0B2F3B !important;
+            font-size: 1.02rem;
             font-weight: 850;
             line-height: 1.1;
         }}
 
         .wms-sidebar-subtitle {{
-            color: rgba(20,37,52,.74) !important;
+            color: #0E5663 !important;
             font-size: .78rem;
             margin-top: .15rem;
+        }}
+
+        section[data-testid="stSidebar"] .wms-sidebar-title {{
+            color: #0B2F3B !important;
+        }}
+
+        section[data-testid="stSidebar"] .wms-sidebar-subtitle {{
+            color: #0E5663 !important;
         }}
 
         .wms-nav-section {{
@@ -516,7 +524,7 @@ def apply_login_theme() -> None:
 
         .login-title {{
             text-align: center;
-            font-size: clamp(2.05rem, 2.6vw, 2.55rem);
+            font-size: clamp(1.62rem, 2.05vw, 2.05rem);
             font-weight: 880;
             margin-bottom: .25rem;
             color: var(--wms-navy);
@@ -554,11 +562,11 @@ def render_sidebar_brand() -> None:
         <div class="wms-sidebar-brand">
             <div class="wms-sidebar-brand-logo">{logo}</div>
             <div>
-                <div class="wms-sidebar-title" style="color:#66BB6A;">
+                <div class="wms-sidebar-title">
                     App WMS Block B
                 </div>
-                <div class="wms-sidebar-subtitle" style="color:#A5D6A7;">
-                    Insumos • Stock • Operaciones
+                <div class="wms-sidebar-subtitle">
+                    Insumos • Stock
                 </div>
             </div>
         </div>
@@ -568,9 +576,9 @@ def render_sidebar_brand() -> None:
 
 
 GROUP_ICONS = {
-    "Maestros": "▣",
-    "Ingresos": "↓",
-    "Salidas": "↗",
+    "Maestros": "◧",
+    "Ingresos": "↧",
+    "Salidas": "↥",
     "Consultas": "⌕",
     "Reportes": "▥",
 }
