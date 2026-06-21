@@ -94,10 +94,17 @@ def get_stock_general():
             nombre_unidad,
             stock_minimo,
             stock_maximo,
+            ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_total,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
-            ISNULL(cantidad_disponible, cantidad_total) AS cantidad_disponible
+            ISNULL(cantidad_disponible, cantidad_total) AS cantidad_disponible,
+            ISNULL(valor_stock_total, cantidad_total * ISNULL(precio_unitario, 0)) AS valor_stock_total,
+            ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_total) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible
         FROM dbo.vw_stock_general
+        WHERE ISNULL(cantidad_total, 0) > 0
+           OR ISNULL(cantidad_en_picking, 0) > 0
+           OR ISNULL(cantidad_disponible, 0) > 0
         ORDER BY nombre_producto
     """)
 
@@ -119,11 +126,18 @@ def get_stock_por_ubicacion():
             ISNULL(es_surtible, 1) AS es_surtible,
             ISNULL(es_stage, 0) AS es_stage,
             lote,
+            ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_actual,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
             ISNULL(cantidad_disponible, cantidad_actual) AS cantidad_disponible,
+            ISNULL(valor_stock_actual, cantidad_actual * ISNULL(precio_unitario, 0)) AS valor_stock_actual,
+            ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible,
             fecha_actualizacion
         FROM dbo.vw_stock_por_ubicacion
+        WHERE ISNULL(cantidad_actual, 0) > 0
+           OR ISNULL(cantidad_en_picking, 0) > 0
+           OR ISNULL(cantidad_disponible, 0) > 0
         ORDER BY nombre_producto, secuencia, codigo_ubicacion
     """)
 
@@ -139,21 +153,49 @@ def get_stock_por_cuenta():
             nombre_producto,
             codigo_unidad,
             nombre_unidad,
+            ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_entregada,
             cantidad_devuelta,
             cantidad_neta,
+            ISNULL(valor_stock_cuenta, cantidad_neta * ISNULL(precio_unitario, 0)) AS valor_stock_cuenta,
             fecha_actualizacion
         FROM dbo.vw_stock_por_cuenta
+        WHERE ISNULL(cantidad_neta, 0) > 0
         ORDER BY nombre_cuenta, nombre_producto
     """)
 
 
-def get_movimientos():
-    return read_dataframe("""
+def get_movimientos(fecha_inicio=None, fecha_fin=None, tipo_movimiento: str = "", cuenta: str = "", sku: str = ""):
+    filters = ["fecha_movimiento IS NOT NULL"]
+    params = {}
+
+    if fecha_inicio is not None:
+        filters.append("CAST(fecha_movimiento AS DATE) >= :fecha_inicio")
+        params["fecha_inicio"] = fecha_inicio
+
+    if fecha_fin is not None:
+        filters.append("CAST(fecha_movimiento AS DATE) <= :fecha_fin")
+        params["fecha_fin"] = fecha_fin
+
+    if tipo_movimiento:
+        filters.append("tipo_movimiento = :tipo_movimiento")
+        params["tipo_movimiento"] = tipo_movimiento
+
+    if cuenta:
+        filters.append("(codigo_cuenta LIKE '%' + :cuenta + '%' OR nombre_cuenta LIKE '%' + :cuenta + '%')")
+        params["cuenta"] = cuenta
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+
+    where_sql = " AND ".join(filters)
+    return read_dataframe(f"""
         SELECT *
-        FROM vw_movimientos
-        ORDER BY fecha_movimiento DESC
-    """)
+        FROM dbo.vw_movimientos
+        WHERE {where_sql}
+        ORDER BY fecha_movimiento DESC, id_movimiento DESC
+    """, params)
 
 
 def get_stock_disponible_por_producto(id_producto: int):
@@ -193,6 +235,7 @@ def get_productos_activos():
             p.descripcion,
             ISNULL(p.ean_serie, '') AS ean_serie,
             ISNULL(p.flag_aplica_ean, 'NO') AS flag_aplica_ean,
+            ISNULL(p.precio_unitario, 0) AS precio_unitario,
             p.id_categoria,
             cp.nombre_categoria,
             p.id_unidad,
@@ -219,6 +262,7 @@ def get_productos_todos():
             p.descripcion,
             ISNULL(p.ean_serie, '') AS ean_serie,
             ISNULL(p.flag_aplica_ean, 'NO') AS flag_aplica_ean,
+            ISNULL(p.precio_unitario, 0) AS precio_unitario,
             p.id_categoria,
             cp.nombre_categoria,
             p.id_unidad,
@@ -244,6 +288,7 @@ def insert_producto(
     stock_minimo,
     stock_maximo,
     requiere_lote,
+    precio_unitario=0.0,
     ean_serie="",
     flag_aplica_ean="NO",
 ):
@@ -256,6 +301,7 @@ def insert_producto(
                 descripcion,
                 ean_serie,
                 flag_aplica_ean,
+                precio_unitario,
                 id_categoria,
                 id_unidad,
                 stock_minimo,
@@ -270,6 +316,7 @@ def insert_producto(
                 :descripcion,
                 :ean_serie,
                 :flag_aplica_ean,
+                :precio_unitario,
                 :id_categoria,
                 :id_unidad,
                 :stock_minimo,
@@ -284,6 +331,7 @@ def insert_producto(
             "descripcion": clean_text(descripcion),
             "ean_serie": clean_text(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
+            "precio_unitario": clean_float(precio_unitario),
             "id_categoria": int(id_categoria),
             "id_unidad": int(id_unidad),
             "stock_minimo": clean_float(stock_minimo),
@@ -304,6 +352,7 @@ def update_producto(
     stock_maximo,
     requiere_lote,
     activo=1,
+    precio_unitario=0.0,
     ean_serie="",
     flag_aplica_ean="NO",
 ):
@@ -315,6 +364,7 @@ def update_producto(
             descripcion = :descripcion,
             ean_serie = :ean_serie,
             flag_aplica_ean = :flag_aplica_ean,
+            precio_unitario = :precio_unitario,
             id_categoria = :id_categoria,
             id_unidad = :id_unidad,
             stock_minimo = :stock_minimo,
@@ -330,6 +380,7 @@ def update_producto(
             "descripcion": clean_text(descripcion),
             "ean_serie": clean_text(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
+            "precio_unitario": clean_float(precio_unitario),
             "id_categoria": int(id_categoria),
             "id_unidad": int(id_unidad),
             "stock_minimo": clean_float(stock_minimo),
@@ -361,6 +412,7 @@ def bulk_insert_productos(rows: list[dict]):
                 descripcion,
                 ean_serie,
                 flag_aplica_ean,
+                precio_unitario,
                 id_categoria,
                 id_unidad,
                 stock_minimo,
@@ -375,6 +427,7 @@ def bulk_insert_productos(rows: list[dict]):
                 :descripcion,
                 :ean_serie,
                 :flag_aplica_ean,
+                :precio_unitario,
                 :id_categoria,
                 :id_unidad,
                 :stock_minimo,
@@ -1358,8 +1411,25 @@ def get_pedido_detalle(id_pedido: int):
     )
 
 
-def get_pickings_resumen():
-    return read_dataframe("""
+def get_pickings_resumen(fecha_inicio=None, fecha_fin=None, estado: str = ""):
+    filters = []
+    params = {}
+
+    if fecha_inicio is not None:
+        filters.append("CAST(fecha_creacion AS DATE) >= :fecha_inicio")
+        params["fecha_inicio"] = fecha_inicio
+
+    if fecha_fin is not None:
+        filters.append("CAST(fecha_creacion AS DATE) <= :fecha_fin")
+        params["fecha_fin"] = fecha_fin
+
+    if estado:
+        filters.append("estado = :estado")
+        params["estado"] = estado
+
+    where_sql = "WHERE " + " AND ".join(filters) if filters else ""
+
+    return read_dataframe(f"""
         SELECT
             id_picking,
             nro_picking,
@@ -1374,8 +1444,9 @@ def get_pickings_resumen():
             cortos_cancelados,
             tareas_completadas
         FROM dbo.vw_picking_resumen
+        {where_sql}
         ORDER BY fecha_creacion DESC, nro_picking DESC
-    """)
+    """, params)
 
 
 def get_picking_detalle(id_picking: int | None = None):
@@ -1524,6 +1595,8 @@ def get_dashboard_movimientos():
             ISNULL(ubicacion_origen, '') AS ubicacion_origen,
             ISNULL(ubicacion_destino, '') AS ubicacion_destino,
             CAST(ISNULL(cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
+            CAST(ISNULL(precio_unitario, 0) AS DECIMAL(18,4)) AS precio_unitario,
+            CAST(ISNULL(importe_soles, ISNULL(cantidad, 0) * ISNULL(precio_unitario, 0)) AS DECIMAL(18,2)) AS importe_soles,
             ISNULL(lote, '') AS lote,
             ISNULL(referencia, '') AS referencia,
             ISNULL(observacion, '') AS observacion,
@@ -1552,6 +1625,8 @@ def get_dashboard_movimientos():
             ISNULL(ub_origen.codigo_ubicacion, '') AS ubicacion_origen,
             ISNULL(ub_destino.codigo_ubicacion, '') AS ubicacion_destino,
             CAST(ISNULL(md.cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
+            CAST(ISNULL(p.precio_unitario, 0) AS DECIMAL(18,4)) AS precio_unitario,
+            CAST(ISNULL(md.cantidad, 0) * ISNULL(p.precio_unitario, 0) AS DECIMAL(18,2)) AS importe_soles,
             ISNULL(md.lote, '') AS lote,
             ISNULL(m.referencia, '') AS referencia,
             ISNULL(m.observacion, '') AS observacion,
