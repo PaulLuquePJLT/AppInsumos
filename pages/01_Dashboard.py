@@ -9,22 +9,25 @@ from src.queries import (
     get_dashboard_movimientos,
     get_productos_activos,
     get_stock_general,
+    get_stock_por_cuenta,
     get_ubicaciones,
 )
 from src.theme import PALETTE
 
 st.markdown('<div class="wms-page-kicker">Reportes</div>', unsafe_allow_html=True)
-st.title("📊 Dashboard operativo")
+st.title("Dashboard operativo")
 st.markdown(
-    '<div class="wms-soft-banner">Resumen ejecutivo de ingresos, salidas, stock y movimientos. Usa los filtros para analizar por período, cuenta, proveedor o SKU.</div>',
+    '<div class="wms-soft-banner">Resumen ejecutivo de ingresos, salidas, stock valorizado y movimientos. Cambia entre unidades y soles peruanos para analizar cantidades o valor económico.</div>',
     unsafe_allow_html=True,
 )
+
 
 @st.cache_data(ttl=90, show_spinner=False)
 def load_dashboard_data():
     return {
         "movimientos": get_dashboard_movimientos(),
         "stock": get_stock_general(),
+        "stock_cuentas": get_stock_por_cuenta(),
         "productos": get_productos_activos(),
         "ubicaciones": get_ubicaciones(),
         "cuentas": get_cuentas(),
@@ -39,12 +42,16 @@ def _format_qty(value: float) -> str:
     return f"{value:,.2f}"
 
 
+def _format_pen(value: float) -> str:
+    return f"S/ {value:,.2f}"
+
+
 def _style_fig(fig):
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=PALETTE["navy"]),
-        margin=dict(l=16, r=16, t=52, b=18),
+        margin=dict(l=16, r=16, t=52, b=22),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     fig.update_xaxes(showgrid=False)
@@ -57,7 +64,7 @@ try:
 except Exception as exc:
     st.error(
         "No se pudo cargar la información del dashboard. "
-        "Ejecuta en Azure SQL el script database/010_ui_login_dashboard_migo_fix.sql "
+        "Ejecuta en Azure SQL el script database/012_precio_dashboard_optimization.sql "
         "y luego reinicia la app."
     )
     with st.expander("Detalle técnico"):
@@ -66,6 +73,7 @@ except Exception as exc:
 
 mov = data["movimientos"].copy()
 stock = data["stock"].copy()
+stock_cuentas = data["stock_cuentas"].copy()
 productos = data["productos"].copy()
 ubicaciones = data["ubicaciones"].copy()
 cuentas = data["cuentas"].copy()
@@ -73,46 +81,71 @@ cuentas = data["cuentas"].copy()
 if not mov.empty:
     mov["fecha_movimiento"] = pd.to_datetime(mov["fecha_movimiento"], errors="coerce")
     mov["fecha"] = mov["fecha_movimiento"].dt.date
-    mov["cantidad"] = pd.to_numeric(mov["cantidad"], errors="coerce").fillna(0.0)
+    mov["cantidad"] = pd.to_numeric(mov.get("cantidad", 0), errors="coerce").fillna(0.0)
+    mov["precio_unitario"] = pd.to_numeric(mov.get("precio_unitario", 0), errors="coerce").fillna(0.0)
+    mov["importe_soles"] = pd.to_numeric(
+        mov.get("importe_soles", mov["cantidad"] * mov["precio_unitario"]),
+        errors="coerce",
+    ).fillna(0.0)
 else:
     mov = pd.DataFrame(columns=[
-        "fecha_movimiento", "fecha", "tipo_movimiento", "cantidad", "codigo_cuenta",
-        "nombre_cuenta", "razon_social_proveedor", "sku", "nombre_producto", "codigo_unidad"
+        "fecha_movimiento", "fecha", "tipo_movimiento", "cantidad", "importe_soles", "precio_unitario",
+        "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "ruc_proveedor", "sku", "nombre_producto", "codigo_unidad"
     ])
+
+for col in ["cantidad_total", "cantidad_disponible", "cantidad_en_picking", "valor_stock_total", "valor_stock_disponible"]:
+    if col in stock.columns:
+        stock[col] = pd.to_numeric(stock[col], errors="coerce").fillna(0.0)
+
+for col in ["cantidad_neta", "valor_stock_cuenta"]:
+    if col in stock_cuentas.columns:
+        stock_cuentas[col] = pd.to_numeric(stock_cuentas[col], errors="coerce").fillna(0.0)
 
 # ---------------------------------------------------------------------------
 # Primera fila: filtros
 # ---------------------------------------------------------------------------
-st.markdown('<div class="wms-card"><div class="wms-card-title">🔎 Filtros</div>', unsafe_allow_html=True)
+st.markdown('<div class="wms-card"><div class="wms-card-title">Filtros</div>', unsafe_allow_html=True)
 
 if not mov.empty and mov["fecha"].notna().any():
-    min_date = min(mov["fecha"].dropna())
     max_date = max(mov["fecha"].dropna())
+    min_date = max_date - timedelta(days=1)
+    available_min_date = min(mov["fecha"].dropna())
 else:
     max_date = date.today()
-    min_date = max_date - timedelta(days=30)
+    min_date = max_date - timedelta(days=1)
+    available_min_date = max_date - timedelta(days=365)
 
-col1, col2, col3, col4 = st.columns([1.2, 1, 1, 1])
+col1, col2, col3, col4 = st.columns([1.25, 1, 1.2, 1])
 with col1:
     fecha_rango = st.date_input(
         "Rango de fechas",
         value=(min_date, max_date),
-        min_value=min_date,
+        min_value=available_min_date,
         max_value=max_date,
     )
 with col2:
     tipo_options = [""] + sorted(mov["tipo_movimiento"].dropna().astype(str).unique().tolist())
     tipo_filter = st.selectbox("Tipo movimiento", tipo_options, format_func=lambda x: "Todos" if x == "" else x)
 with col3:
-    cuenta_filter = st.text_input("Cuenta")
+    cuenta_options = [""]
+    cuenta_label_to_code = {"": ""}
+    if not cuentas.empty:
+        for _, r in cuentas.iterrows():
+            label = f"{r['codigo_cuenta']} | {r['nombre_cuenta']}"
+            cuenta_options.append(label)
+            cuenta_label_to_code[label] = str(r["codigo_cuenta"])
+    cuenta_label = st.selectbox("Cuenta logística", cuenta_options, format_func=lambda x: "Todas" if x == "" else x)
+    cuenta_filter = cuenta_label_to_code.get(cuenta_label, "")
 with col4:
-    sku_filter = st.text_input("SKU / producto")
+    modo = st.radio("Mostrar", ["Unidades", "Soles (S/.)"], horizontal=True)
 
-col5, col6 = st.columns([1, 1])
+col5, col6, col7 = st.columns([1, 1, .7])
 with col5:
-    proveedor_filter = st.text_input("Proveedor")
+    sku_filter = st.text_input("SKU / producto")
 with col6:
-    if st.button("Actualizar datos", use_container_width=True):
+    proveedor_filter = st.text_input("Proveedor")
+with col7:
+    if st.button("Actualizar", use_container_width=True):
         load_dashboard_data.clear()
         st.rerun()
 
@@ -132,12 +165,9 @@ if not filtered.empty:
 if tipo_filter:
     filtered = filtered[filtered["tipo_movimiento"].astype(str) == tipo_filter]
 
-if cuenta_filter.strip():
-    value = cuenta_filter.strip().lower()
-    filtered = filtered[
-        filtered["codigo_cuenta"].astype(str).str.lower().str.contains(value, na=False)
-        | filtered["nombre_cuenta"].astype(str).str.lower().str.contains(value, na=False)
-    ]
+if cuenta_filter:
+    value = cuenta_filter.lower()
+    filtered = filtered[filtered["codigo_cuenta"].astype(str).str.lower() == value]
 
 if proveedor_filter.strip():
     value = proveedor_filter.strip().lower()
@@ -153,6 +183,10 @@ if sku_filter.strip():
         | filtered["nombre_producto"].astype(str).str.lower().str.contains(value, na=False)
     ]
 
+y_col = "importe_soles" if modo.startswith("Soles") else "cantidad"
+y_label = "Monto S/." if y_col == "importe_soles" else "Cantidad"
+formatter = _format_pen if y_col == "importe_soles" else _format_qty
+
 # ---------------------------------------------------------------------------
 # Segunda fila: KPI cards
 # ---------------------------------------------------------------------------
@@ -160,18 +194,18 @@ ingresos = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "ENTR
 salidas = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "SALIDA_CUENTA"]
 transferencias = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "TRANSFERENCIA"]
 
-stock_total = float(pd.to_numeric(stock.get("cantidad_total", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not stock.empty else 0.0
-stock_disponible = float(pd.to_numeric(stock.get("cantidad_disponible", stock.get("cantidad_total", pd.Series(dtype=float))), errors="coerce").fillna(0).sum()) if not stock.empty else 0.0
+stock_disponible = float(stock.get("cantidad_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
+stock_valor_disponible = float(stock.get("valor_stock_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
 low_stock = stock[
-    pd.to_numeric(stock.get("cantidad_disponible", stock.get("cantidad_total", pd.Series(dtype=float))), errors="coerce").fillna(0)
+    pd.to_numeric(stock.get("cantidad_disponible", pd.Series(dtype=float)), errors="coerce").fillna(0)
     <= pd.to_numeric(stock.get("stock_minimo", pd.Series(dtype=float)), errors="coerce").fillna(0)
 ] if not stock.empty else _empty_df()
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Ingresos", _format_qty(float(ingresos["cantidad"].sum())))
-k2.metric("Salidas a cuenta", _format_qty(float(salidas["cantidad"].sum())))
-k3.metric("Transferencias", _format_qty(float(transferencias["cantidad"].sum())))
-k4.metric("Stock disponible", _format_qty(stock_disponible))
+k1.metric("Ingresos", formatter(float(ingresos[y_col].sum())))
+k2.metric("Salidas a cuenta", formatter(float(salidas[y_col].sum())))
+k3.metric("Transferencias", formatter(float(transferencias[y_col].sum())))
+k4.metric("Stock disponible", _format_pen(stock_valor_disponible) if y_col == "importe_soles" else _format_qty(stock_disponible))
 k5.metric("Bajo mínimo", len(low_stock))
 
 k6, k7, k8, k9 = st.columns(4)
@@ -180,40 +214,41 @@ k7.metric("Ubicaciones", len(ubicaciones))
 k8.metric("Cuentas", len(cuentas))
 k9.metric("Movimientos", filtered["id_movimiento"].nunique() if "id_movimiento" in filtered.columns else len(filtered))
 
-# ---------------------------------------------------------------------------
-# Gráficas
-# ---------------------------------------------------------------------------
 if filtered.empty:
     st.info("No hay movimientos para los filtros seleccionados.")
     st.stop()
 
 filtered["fecha_str"] = pd.to_datetime(filtered["fecha"], errors="coerce")
 
+# ---------------------------------------------------------------------------
+# Gráficas principales
+# ---------------------------------------------------------------------------
 row1_col1, row1_col2 = st.columns([1.25, 1])
 
 with row1_col1:
     daily = (
-        filtered.groupby(["fecha_str", "tipo_movimiento"], as_index=False)["cantidad"]
+        filtered.groupby(["fecha_str", "tipo_movimiento"], as_index=False)[y_col]
         .sum()
         .sort_values("fecha_str")
     )
     fig = px.area(
         daily,
         x="fecha_str",
-        y="cantidad",
+        y=y_col,
         color="tipo_movimiento",
-        title="Movimientos por día",
+        title=f"Movimientos por día - {y_label}",
+        labels={y_col: y_label, "fecha_str": "Fecha"},
         color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["teal"], PALETTE["gold"], PALETTE["navy"]],
     )
     st.plotly_chart(_style_fig(fig), use_container_width=True)
 
 with row1_col2:
-    by_type = filtered.groupby("tipo_movimiento", as_index=False)["cantidad"].sum()
+    by_type = filtered.groupby("tipo_movimiento", as_index=False)[y_col].sum()
     fig = px.pie(
         by_type,
-        values="cantidad",
+        values=y_col,
         names="tipo_movimiento",
-        title="Distribución por tipo de movimiento",
+        title=f"Distribución por tipo - {y_label}",
         color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["teal"], PALETTE["gold"], PALETTE["navy"]],
         hole=.48,
     )
@@ -223,19 +258,20 @@ row2_col1, row2_col2 = st.columns(2)
 
 with row2_col1:
     top_sku = (
-        filtered.groupby(["sku", "nombre_producto"], as_index=False)["cantidad"]
+        filtered.groupby(["sku", "nombre_producto"], as_index=False)[y_col]
         .sum()
-        .sort_values("cantidad", ascending=False)
+        .sort_values(y_col, ascending=False)
         .head(10)
     )
     top_sku["producto"] = top_sku["sku"].astype(str) + " | " + top_sku["nombre_producto"].astype(str).str.slice(0, 34)
     fig = px.bar(
         top_sku,
-        x="cantidad",
+        x=y_col,
         y="producto",
         orientation="h",
-        title="Top 10 productos movidos",
-        color="cantidad",
+        title=f"Top 10 productos movidos - {y_label}",
+        labels={y_col: y_label},
+        color=y_col,
         color_continuous_scale=[[0, PALETTE["teal_soft"]], [0.65, PALETTE["teal"]], [1, PALETTE["teal_dark"]]],
     )
     fig.update_layout(yaxis=dict(autorange="reversed"), coloraxis_showscale=False)
@@ -247,17 +283,18 @@ with row2_col2:
         st.info("No hay salidas a cuenta para mostrar.")
     else:
         by_account = (
-            salidas_cuenta.groupby(["codigo_cuenta", "nombre_cuenta"], as_index=False)["cantidad"]
+            salidas_cuenta.groupby(["codigo_cuenta", "nombre_cuenta"], as_index=False)[y_col]
             .sum()
-            .sort_values("cantidad", ascending=False)
+            .sort_values(y_col, ascending=False)
             .head(10)
         )
         by_account["cuenta"] = by_account["codigo_cuenta"].astype(str) + " | " + by_account["nombre_cuenta"].astype(str).str.slice(0, 30)
         fig = px.bar(
             by_account,
             x="cuenta",
-            y="cantidad",
-            title="Top cuentas por salidas",
+            y=y_col,
+            title=f"Top cuentas por salidas - {y_label}",
+            labels={y_col: y_label},
             color_discrete_sequence=[PALETTE["teal"]],
         )
         st.plotly_chart(_style_fig(fig), use_container_width=True)
@@ -265,50 +302,89 @@ with row2_col2:
 row3_col1, row3_col2 = st.columns(2)
 
 with row3_col1:
-    ingresos_proveedor = ingresos.copy()
-    if ingresos_proveedor.empty:
-        st.info("No hay ingresos por proveedor para mostrar.")
+    stock_cuentas_view = stock_cuentas.copy()
+    if cuenta_filter and not stock_cuentas_view.empty:
+        stock_cuentas_view = stock_cuentas_view[stock_cuentas_view["codigo_cuenta"].astype(str).str.lower() == cuenta_filter.lower()]
+    if stock_cuentas_view.empty or "valor_stock_cuenta" not in stock_cuentas_view.columns:
+        st.info("No hay stock valorizado por cuenta para mostrar.")
     else:
-        by_provider = (
-            ingresos_proveedor.groupby("razon_social_proveedor", as_index=False)["cantidad"]
+        valor_cuenta = (
+            stock_cuentas_view.groupby(["codigo_cuenta", "nombre_cuenta"], as_index=False)["valor_stock_cuenta"]
             .sum()
-            .sort_values("cantidad", ascending=False)
-            .head(10)
+            .sort_values("valor_stock_cuenta", ascending=False)
+            .head(12)
         )
+        valor_cuenta["cuenta"] = valor_cuenta["codigo_cuenta"].astype(str) + " | " + valor_cuenta["nombre_cuenta"].astype(str).str.slice(0, 30)
         fig = px.bar(
-            by_provider,
-            x="cantidad",
-            y="razon_social_proveedor",
+            valor_cuenta,
+            x="valor_stock_cuenta",
+            y="cuenta",
             orientation="h",
-            title="Top proveedores por cantidad ingresada",
-            color_discrete_sequence=[PALETTE["gold"]],
+            title="Valor de stock por cuenta logística (S/.)",
+            labels={"valor_stock_cuenta": "Monto S/."},
+            color_discrete_sequence=[PALETTE["teal_dark"]],
         )
         fig.update_layout(yaxis=dict(autorange="reversed"))
         st.plotly_chart(_style_fig(fig), use_container_width=True)
 
 with row3_col2:
+    mov_valor = filtered[filtered["tipo_movimiento"].astype(str).str.upper().isin(["ENTRADA", "SALIDA_CUENTA"])].copy()
+    if mov_valor.empty:
+        st.info("No hay ingresos o salidas para graficar valorización.")
+    else:
+        line_valor = (
+            mov_valor.groupby(["fecha_str", "tipo_movimiento"], as_index=False)["importe_soles"]
+            .sum()
+            .sort_values("fecha_str")
+        )
+        fig = px.line(
+            line_valor,
+            x="fecha_str",
+            y="importe_soles",
+            color="tipo_movimiento",
+            markers=True,
+            title="Entradas vs salidas del almacén principal (S/.)",
+            labels={"importe_soles": "Monto S/.", "fecha_str": "Fecha"},
+            color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["gold"]],
+        )
+        st.plotly_chart(_style_fig(fig), use_container_width=True)
+
+row4_col1, row4_col2 = st.columns(2)
+
+with row4_col1:
+    ingresos_proveedor = ingresos.copy()
+    if ingresos_proveedor.empty:
+        st.info("No hay ingresos por proveedor para mostrar.")
+    else:
+        by_provider = (
+            ingresos_proveedor.groupby("razon_social_proveedor", as_index=False)[y_col]
+            .sum()
+            .sort_values(y_col, ascending=False)
+            .head(10)
+        )
+        fig = px.bar(
+            by_provider,
+            x=y_col,
+            y="razon_social_proveedor",
+            orientation="h",
+            title=f"Top proveedores por ingresos - {y_label}",
+            labels={y_col: y_label},
+            color_discrete_sequence=[PALETTE["gold"]],
+        )
+        fig.update_layout(yaxis=dict(autorange="reversed"))
+        st.plotly_chart(_style_fig(fig), use_container_width=True)
+
+with row4_col2:
     if low_stock.empty:
         st.success("No hay productos bajo mínimo.")
     else:
-        low_view = low_stock[["sku", "nombre_producto", "cantidad_disponible", "stock_minimo"]].copy() if "cantidad_disponible" in low_stock.columns else low_stock[["sku", "nombre_producto", "cantidad_total", "stock_minimo"]].copy()
-        st.markdown("### ⚠️ Productos bajo mínimo")
-        st.dataframe(low_view.head(15), use_container_width=True, hide_index=True)
+        low_cols = [c for c in ["sku", "nombre_producto", "cantidad_disponible", "valor_stock_disponible", "stock_minimo"] if c in low_stock.columns]
+        st.markdown("### Productos bajo mínimo")
+        st.dataframe(low_stock[low_cols].head(15), use_container_width=True, hide_index=True)
 
-st.markdown("### 📄 Movimientos filtrados")
-st.dataframe(
-    filtered[[
-        "fecha_movimiento",
-        "tipo_movimiento",
-        "sku",
-        "nombre_producto",
-        "cantidad",
-        "codigo_unidad",
-        "codigo_cuenta",
-        "nombre_cuenta",
-        "razon_social_proveedor",
-        "referencia",
-    ]].reset_index(drop=True),
-    use_container_width=True,
-    hide_index=True,
-)
-
+st.markdown("### Movimientos filtrados")
+cols = [
+    "fecha_movimiento", "tipo_movimiento", "sku", "nombre_producto", "cantidad", "codigo_unidad",
+    "precio_unitario", "importe_soles", "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "referencia",
+]
+st.dataframe(filtered[[c for c in cols if c in filtered.columns]].reset_index(drop=True), use_container_width=True, hide_index=True)
