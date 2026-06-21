@@ -277,21 +277,21 @@ def apply_global_theme() -> None:
             font-size: 1.05rem;
             font-weight: 850;
             line-height: 1.1;
-        }
+        }}
         
         .wms-sidebar-subtitle {
             color: #0F766E !important;
             font-size: .78rem;
             font-weight: 650;
             margin-top: .15rem;
-        }
+        }}
         section[data-testid="stSidebar"] .wms-sidebar-brand .wms-sidebar-title {
             color: #064E3B !important;
-        }
+        }}
         
         section[data-testid="stSidebar"] .wms-sidebar-brand .wms-sidebar-subtitle {
             color: #0F766E !important;
-        }
+        }}
         .wms-nav-section {{
             color: rgba(255,255,255,.58) !important;
             font-size: .74rem;
