@@ -269,7 +269,7 @@ with tab_crear:
 with tab_visualizar:
     colf1, colf2 = st.columns(2)
     with colf1:
-        solo_hoy = st.checkbox("Solo pedidos de hoy", value=False)
+        solo_hoy = st.checkbox("Solo pedidos de hoy", value=True)
     with colf2:
         solo_creados = st.checkbox("Solo pedidos en estado CREADO", value=False)
 
