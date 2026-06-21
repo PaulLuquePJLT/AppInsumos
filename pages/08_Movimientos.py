@@ -75,10 +75,3 @@ m2.metric("Cantidad", f"{movimientos['cantidad'].sum():,.2f}" if "cantidad" in m
 m3.metric("Monto S/.", f"S/ {movimientos['importe_soles'].sum():,.2f}" if "importe_soles" in movimientos.columns else "S/ 0.00")
 
 st.dataframe(movimientos, use_container_width=True, hide_index=True)
-
-st.download_button(
-    "Descargar movimientos filtrados",
-    data=movimientos.to_csv(index=False).encode("utf-8-sig"),
-    file_name="movimientos_wms.csv",
-    mime="text/csv",
-)
