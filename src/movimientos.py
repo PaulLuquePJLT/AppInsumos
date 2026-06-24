@@ -348,11 +348,18 @@ def crear_pedido(
 
 
 def eliminar_pedidos(ids_pedidos: list[int]) -> dict:
-    """Elimina fisicamente pedidos seleccionados si aun no tienen picking ni atencion.
+    """Elimina físicamente pedidos seleccionados en estado CREADO.
 
-    Seguridad aplicada:
-    - Solo elimina pedidos sin registros en picking_pedido.
-    - Solo elimina pedidos cuyos detalles no tengan cantidades asignadas, atendidas o canceladas.
+    Reglas:
+    - Solo permite eliminar pedidos con estado CREADO.
+    - Si el pedido estuvo en un picking CANCELADO, limpia esas relaciones históricas
+      y permite eliminarlo.
+    - Bloquea pedidos con pickings activos o tareas ya COMPLETADAS.
+    - Bloquea pedidos con cantidades atendidas o canceladas.
+
+    Este ajuste corrige el caso donde un pedido vuelve a CREADO luego de cancelar
+    un picking, pero mantiene registros en picking_pedido/picking_detalle que
+    antes impedían eliminarlo.
     """
     ids = [int(v) for v in ids_pedidos if v is not None]
     if not ids:
@@ -362,32 +369,161 @@ def eliminar_pedidos(ids_pedidos: list[int]) -> dict:
     params = {f"p{i}": int(v) for i, v in enumerate(ids)}
 
     with get_engine().begin() as conn:
-        bloqueados = list(conn.execute(
+        no_creados = list(conn.execute(
+            text(f"""
+                SELECT nro_pedido, estado
+                FROM pedidos
+                WHERE id_pedido IN ({placeholders})
+                  AND estado <> 'CREADO'
+            """),
+            params,
+        ).mappings())
+        if no_creados:
+            pedidos = ", ".join(f"{r['nro_pedido']} ({r['estado']})" for r in no_creados)
+            raise ValueError(
+                "Solo se pueden eliminar pedidos en estado CREADO. Pedidos no permitidos: "
+                + pedidos
+            )
+
+        procesados = list(conn.execute(
             text(f"""
                 SELECT DISTINCT p.nro_pedido
                 FROM pedidos p
-                LEFT JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
+                INNER JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
                 WHERE p.id_pedido IN ({placeholders})
                   AND (
-                        EXISTS (
-                            SELECT 1
-                            FROM picking_pedido pp
-                            WHERE pp.id_pedido = p.id_pedido
-                        )
-                        OR ISNULL(pd.cantidad_asignada, 0) > 0
-                        OR ISNULL(pd.cantidad_atendida, 0) > 0
+                        ISNULL(pd.cantidad_atendida, 0) > 0
                         OR ISNULL(pd.cantidad_cancelada, 0) > 0
                       )
             """),
             params,
         ).mappings())
-
-        if bloqueados:
-            pedidos = ", ".join(str(r["nro_pedido"]) for r in bloqueados)
+        if procesados:
+            pedidos = ", ".join(str(r["nro_pedido"]) for r in procesados)
             raise ValueError(
-                "No se pueden eliminar pedidos con picking, asignacion, atencion o cancelacion registrada: "
+                "No se pueden eliminar pedidos con cantidades atendidas o canceladas: "
                 + pedidos
             )
+
+        picking_activo = list(conn.execute(
+            text(f"""
+                SELECT DISTINCT p.nro_pedido, ph.nro_picking, ph.estado
+                FROM pedidos p
+                INNER JOIN picking_pedido pp ON pp.id_pedido = p.id_pedido
+                INNER JOIN picking_header ph ON ph.id_picking = pp.id_picking
+                WHERE p.id_pedido IN ({placeholders})
+                  AND ISNULL(ph.estado, '') <> 'CANCELADO'
+            """),
+            params,
+        ).mappings())
+        if picking_activo:
+            pedidos = ", ".join(
+                f"{r['nro_pedido']} / {r['nro_picking']} ({r['estado']})"
+                for r in picking_activo
+            )
+            raise ValueError(
+                "No se pueden eliminar pedidos con picking activo. Cancela primero el picking: "
+                + pedidos
+            )
+
+        tareas_completadas = list(conn.execute(
+            text(f"""
+                SELECT DISTINCT p.nro_pedido, ph.nro_picking
+                FROM pedidos p
+                INNER JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
+                INNER JOIN picking_detalle pkd ON pkd.id_pedido_detalle = pd.id_pedido_detalle
+                INNER JOIN picking_header ph ON ph.id_picking = pkd.id_picking
+                WHERE p.id_pedido IN ({placeholders})
+                  AND pkd.estado = 'COMPLETADO'
+            """),
+            params,
+        ).mappings())
+        if tareas_completadas:
+            pedidos = ", ".join(
+                f"{r['nro_pedido']} / {r['nro_picking']}"
+                for r in tareas_completadas
+            )
+            raise ValueError(
+                "No se pueden eliminar pedidos con tareas de picking ya completadas: "
+                + pedidos
+            )
+
+        # Si el pedido participó en pickings CANCELADOS, limpiar detalles/relaciones
+        # para no bloquear la eliminación del pedido CREADO.
+        pickings_relacionados = list(conn.execute(
+            text(f"""
+                SELECT DISTINCT ph.id_picking
+                FROM picking_header ph
+                INNER JOIN picking_pedido pp ON pp.id_picking = ph.id_picking
+                WHERE pp.id_pedido IN ({placeholders})
+                  AND ph.estado = 'CANCELADO'
+            """),
+            params,
+        ).scalars())
+
+        picking_detalles_eliminados = conn.execute(
+            text(f"""
+                DELETE pkd
+                FROM picking_detalle pkd
+                INNER JOIN picking_header ph ON ph.id_picking = pkd.id_picking
+                INNER JOIN pedido_detalle pd ON pd.id_pedido_detalle = pkd.id_pedido_detalle
+                WHERE pd.id_pedido IN ({placeholders})
+                  AND ph.estado = 'CANCELADO'
+                  AND pkd.estado <> 'COMPLETADO'
+            """),
+            params,
+        ).rowcount or 0
+
+        picking_pedido_eliminados = conn.execute(
+            text(f"""
+                DELETE pp
+                FROM picking_pedido pp
+                INNER JOIN picking_header ph ON ph.id_picking = pp.id_picking
+                WHERE pp.id_pedido IN ({placeholders})
+                  AND ph.estado = 'CANCELADO'
+            """),
+            params,
+        ).rowcount or 0
+
+        # Eliminar cabeceras de picking canceladas que quedaron sin pedidos ni detalles.
+        pickings_vacios_eliminados = 0
+        for id_picking in pickings_relacionados:
+            deleted = conn.execute(
+                text("""
+                    DELETE ph
+                    FROM picking_header ph
+                    WHERE ph.id_picking = :id_picking
+                      AND ph.estado = 'CANCELADO'
+                      AND NOT EXISTS (
+                            SELECT 1 FROM picking_pedido pp
+                            WHERE pp.id_picking = ph.id_picking
+                      )
+                      AND NOT EXISTS (
+                            SELECT 1 FROM picking_detalle pkd
+                            WHERE pkd.id_picking = ph.id_picking
+                      )
+                """),
+                {"id_picking": int(id_picking)},
+            ).rowcount or 0
+            pickings_vacios_eliminados += int(deleted)
+
+        # Si hubiera cantidades asignadas residuales en pedidos CREADOS sin picking activo,
+        # se normalizan antes de borrar para evitar falsos bloqueos.
+        conn.execute(
+            text(f"""
+                UPDATE pd
+                SET cantidad_asignada = 0,
+                    estado = 'PENDIENTE',
+                    fecha_actualizacion = SYSDATETIME()
+                FROM pedido_detalle pd
+                INNER JOIN pedidos p ON p.id_pedido = pd.id_pedido
+                WHERE p.id_pedido IN ({placeholders})
+                  AND p.estado = 'CREADO'
+                  AND ISNULL(pd.cantidad_atendida, 0) = 0
+                  AND ISNULL(pd.cantidad_cancelada, 0) = 0
+            """),
+            params,
+        )
 
         detalles = conn.execute(
             text(f"DELETE FROM pedido_detalle WHERE id_pedido IN ({placeholders})"),
@@ -399,7 +535,13 @@ def eliminar_pedidos(ids_pedidos: list[int]) -> dict:
             params,
         ).rowcount or 0
 
-    return {"pedidos_eliminados": int(pedidos_eliminados), "detalles_eliminados": int(detalles)}
+    return {
+        "pedidos_eliminados": int(pedidos_eliminados),
+        "detalles_eliminados": int(detalles),
+        "picking_detalles_eliminados": int(picking_detalles_eliminados),
+        "picking_pedido_eliminados": int(picking_pedido_eliminados),
+        "pickings_vacios_eliminados": int(pickings_vacios_eliminados),
+    }
 
 
 def _select_stock_para_asignar(conn, id_producto: int):
