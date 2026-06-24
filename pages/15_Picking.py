@@ -108,6 +108,8 @@ with tab_crear:
                     result = eliminar_pedidos(selected_ids)
                     st.session_state["msg_picking"] = f"Se eliminaron {result['pedidos_eliminados']} pedido(s) y {result['detalles_eliminados']} posición(es)."
                     st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
                 except Exception as exc:
                     st.error("No se pudo eliminar el pedido seleccionado.")
                     st.exception(exc)
