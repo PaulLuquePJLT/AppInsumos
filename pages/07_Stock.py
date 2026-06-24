@@ -58,15 +58,6 @@ def _render_table(df: pd.DataFrame, key_prefix: str):
     st.metric("Registros visibles", len(filtered))
     st.dataframe(filtered, use_container_width=True, hide_index=True)
 
-    st.download_button(
-        "Descargar CSV",
-        data=filtered.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"{key_prefix}.csv",
-        mime="text/csv",
-        key=f"{key_prefix}_download",
-    )
-
-
 tabs = st.tabs(["Stock general", "Por ubicación", "Por cuenta", "Stock bajo mínimo"])
 
 with tabs[0]:
