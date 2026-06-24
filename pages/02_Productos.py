@@ -68,6 +68,16 @@ def validar_ean13(flag_aplica_ean: str, ean_serie: str) -> str | None:
     return None
 
 
+def parse_vida_util(value) -> int:
+    value_text = clean_text(value)
+    if value_text == "":
+        return 0
+    numeric = float(str(value_text).replace(",", "."))
+    if numeric < 0 or numeric != int(numeric):
+        raise ValueError("La vida útil cuenta debe ser un número entero mayor o igual a cero.")
+    return int(numeric)
+
+
 def validar_productos_excel(df: pd.DataFrame):
     required = [
         "sku",
@@ -76,6 +86,7 @@ def validar_productos_excel(df: pd.DataFrame):
         "ean_serie",
         "flag_aplica_ean",
         "precio_unitario",
+        "vida_util_cuenta",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -125,6 +136,12 @@ def validar_productos_excel(df: pd.DataFrame):
             has_error = True
         if precio_unitario < 0:
             add_error(row_errors, excel_row, "precio_unitario", "El precio por unidad no puede ser negativo.")
+            has_error = True
+        try:
+            vida_util_cuenta = parse_vida_util(row["vida_util_cuenta"])
+        except Exception:
+            vida_util_cuenta = 0
+            add_error(row_errors, excel_row, "vida_util_cuenta", "La vida útil cuenta debe ser un número entero mayor o igual a cero.")
             has_error = True
         nombre_categoria = clean_text(row["nombre_categoria"])
         codigo_unidad = clean_upper(row["codigo_unidad"])
@@ -196,6 +213,7 @@ def validar_productos_excel(df: pd.DataFrame):
                 "ean_serie": ean_serie,
                 "flag_aplica_ean": flag_aplica_ean,
                 "precio_unitario": precio_unitario,
+                "vida_util_cuenta_dias": vida_util_cuenta,
                 "id_categoria": id_categoria,
                 "id_unidad": id_unidad,
                 "stock_minimo": stock_minimo,
@@ -210,6 +228,7 @@ def validar_productos_excel(df: pd.DataFrame):
                 "ean_serie": ean_serie,
                 "flag_aplica_ean": flag_aplica_ean,
                 "precio_unitario": precio_unitario,
+                "vida_util_cuenta": vida_util_cuenta,
                 "nombre_categoria": nombre_categoria,
                 "codigo_unidad": codigo_unidad,
                 "stock_minimo": stock_minimo,
@@ -245,6 +264,7 @@ with tab_crear:
             with col_ean2:
                 flag_aplica_ean = st.selectbox("Flag si aplica ean", ["NO", "SI"])
             precio_unitario = st.number_input("Precio por unidad (S/)", min_value=0.0, step=0.01, format="%.4f")
+            vida_util_cuenta = st.number_input("Vida Útil Cuenta (días)", min_value=0, step=1, value=0)
             categoria = st.selectbox("Categoría", categorias["nombre_categoria"].tolist())
             unidad = st.selectbox("Unidad de medida", unidades["codigo_unidad"].tolist())
             stock_minimo = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
@@ -271,6 +291,7 @@ with tab_crear:
                         precio_unitario,
                         ean_serie,
                         flag_aplica_ean,
+                        vida_util_cuenta,
                     )
                     st.session_state["msg_producto"] = "Producto agregado correctamente."
                     st.rerun()
@@ -309,6 +330,12 @@ with tab_editar:
                 step=0.01,
                 format="%.4f",
                 value=float(selected.get("precio_unitario", 0) or 0),
+            )
+            vida_util_cuenta_edit = st.number_input(
+                "Vida Útil Cuenta (días)",
+                min_value=0,
+                step=1,
+                value=int(selected.get("vida_util_cuenta_dias", 0) or 0),
             )
 
             categoria_edit = st.selectbox(
@@ -366,6 +393,7 @@ with tab_editar:
                     precio_unitario_edit,
                     ean_edit,
                     flag_edit,
+                    vida_util_cuenta_edit,
                 )
                 st.session_state["msg_producto"] = "Producto actualizado correctamente."
                 st.rerun()
@@ -393,6 +421,7 @@ with tab_carga:
         "ean_serie",
         "flag_aplica_ean",
         "precio_unitario",
+        "vida_util_cuenta",
         "nombre_categoria",
         "codigo_unidad",
         "stock_minimo",
@@ -407,6 +436,7 @@ with tab_carga:
         "ean_serie": "",
         "flag_aplica_ean": "NO",
         "precio_unitario": 0.00,
+        "vida_util_cuenta": 0,
         "nombre_categoria": categorias["nombre_categoria"].iloc[0] if not categorias.empty else "Embalaje",
         "codigo_unidad": unidades["codigo_unidad"].iloc[0] if not unidades.empty else "RLL",
         "stock_minimo": 10,
