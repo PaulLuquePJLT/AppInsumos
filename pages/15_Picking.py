@@ -7,6 +7,7 @@ from src.movimientos import (
     cancelar_cortos_picking,
     cancelar_picking,
     crear_picking_desde_pedidos,
+    eliminar_pedidos,
     reasignar_cortos_picking,
 )
 from src.queries import (
@@ -94,9 +95,22 @@ with tab_crear:
         edited = selectable_table(table, "pick_pedidos_editor")
         selected_ids = edited.loc[edited["seleccionar"] == True, "id_pedido"].astype(int).tolist()
 
-        colb1, colb2 = st.columns([1, 3])
+        colb1, colb2, colb3 = st.columns([1, 1, 3])
         crear = colb1.button("Crear Picking", type="primary", use_container_width=True)
-        colb2.caption("Puedes seleccionar uno o varios pedidos para consolidarlos en un solo picking.")
+        eliminar_pedido = colb2.button("Eliminar pedido(s)", type="secondary", use_container_width=True)
+        colb3.caption("Puedes seleccionar uno o varios pedidos para consolidarlos. También puedes eliminar pedidos sin picking ni cantidades procesadas.")
+
+        if eliminar_pedido:
+            if not selected_ids:
+                st.error("Selecciona al menos un pedido para eliminar.")
+            else:
+                try:
+                    result = eliminar_pedidos(selected_ids)
+                    st.session_state["msg_picking"] = f"Se eliminaron {result['pedidos_eliminados']} pedido(s) y {result['detalles_eliminados']} posición(es)."
+                    st.rerun()
+                except Exception as exc:
+                    st.error("No se pudo eliminar el pedido seleccionado.")
+                    st.exception(exc)
 
         if crear:
             if not selected_ids:
