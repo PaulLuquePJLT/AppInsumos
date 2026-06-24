@@ -154,7 +154,22 @@ def get_stock_por_ubicacion():
     """)
 
 
+def aplicar_vencimientos_stock_cuenta() -> None:
+    """Aplica descuentos de stock en cuenta por vida util vencida.
+
+    Se ejecuta antes de consultar stock por cuenta para que la vista muestre
+    saldos netos actualizados aun sin un job externo.
+    """
+    try:
+        execute_statement("EXEC dbo.sp_aplicar_vencimientos_stock_cuenta")
+    except Exception:
+        # Evita romper consultas si la migracion aun no fue ejecutada.
+        # Una vez aplicada database/014_..., el procedimiento quedara disponible.
+        pass
+
+
 def get_stock_por_cuenta():
+    aplicar_vencimientos_stock_cuenta()
     return read_dataframe("""
         SELECT
             id_cuenta,
@@ -166,8 +181,10 @@ def get_stock_por_cuenta():
             codigo_unidad,
             nombre_unidad,
             ISNULL(precio_unitario, 0) AS precio_unitario,
+            ISNULL(vida_util_cuenta_dias, 0) AS vida_util_cuenta_dias,
             cantidad_entregada,
             cantidad_devuelta,
+            ISNULL(cantidad_consumida_vida_util, 0) AS cantidad_consumida_vida_util,
             cantidad_neta,
             ISNULL(valor_stock_cuenta, cantidad_neta * ISNULL(precio_unitario, 0)) AS valor_stock_cuenta,
             fecha_actualizacion
@@ -248,6 +265,7 @@ def get_productos_activos():
             ISNULL(p.ean_serie, '') AS ean_serie,
             ISNULL(p.flag_aplica_ean, 'NO') AS flag_aplica_ean,
             ISNULL(p.precio_unitario, 0) AS precio_unitario,
+            ISNULL(p.vida_util_cuenta_dias, 0) AS vida_util_cuenta_dias,
             p.id_categoria,
             cp.nombre_categoria,
             p.id_unidad,
@@ -275,6 +293,7 @@ def get_productos_todos():
             ISNULL(p.ean_serie, '') AS ean_serie,
             ISNULL(p.flag_aplica_ean, 'NO') AS flag_aplica_ean,
             ISNULL(p.precio_unitario, 0) AS precio_unitario,
+            ISNULL(p.vida_util_cuenta_dias, 0) AS vida_util_cuenta_dias,
             p.id_categoria,
             cp.nombre_categoria,
             p.id_unidad,
@@ -303,6 +322,7 @@ def insert_producto(
     precio_unitario=0.0,
     ean_serie="",
     flag_aplica_ean="NO",
+    vida_util_cuenta_dias=0,
 ):
     execute_statement(
         """
@@ -314,6 +334,7 @@ def insert_producto(
                 ean_serie,
                 flag_aplica_ean,
                 precio_unitario,
+                vida_util_cuenta_dias,
                 id_categoria,
                 id_unidad,
                 stock_minimo,
@@ -329,6 +350,7 @@ def insert_producto(
                 :ean_serie,
                 :flag_aplica_ean,
                 :precio_unitario,
+                :vida_util_cuenta_dias,
                 :id_categoria,
                 :id_unidad,
                 :stock_minimo,
@@ -344,6 +366,7 @@ def insert_producto(
             "ean_serie": clean_text(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
             "precio_unitario": clean_float(precio_unitario),
+            "vida_util_cuenta_dias": int(clean_float(vida_util_cuenta_dias, 0)),
             "id_categoria": int(id_categoria),
             "id_unidad": int(id_unidad),
             "stock_minimo": clean_float(stock_minimo),
@@ -367,6 +390,7 @@ def update_producto(
     precio_unitario=0.0,
     ean_serie="",
     flag_aplica_ean="NO",
+    vida_util_cuenta_dias=0,
 ):
     execute_statement(
         """
@@ -377,6 +401,7 @@ def update_producto(
             ean_serie = :ean_serie,
             flag_aplica_ean = :flag_aplica_ean,
             precio_unitario = :precio_unitario,
+            vida_util_cuenta_dias = :vida_util_cuenta_dias,
             id_categoria = :id_categoria,
             id_unidad = :id_unidad,
             stock_minimo = :stock_minimo,
@@ -393,6 +418,7 @@ def update_producto(
             "ean_serie": clean_text(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
             "precio_unitario": clean_float(precio_unitario),
+            "vida_util_cuenta_dias": int(clean_float(vida_util_cuenta_dias, 0)),
             "id_categoria": int(id_categoria),
             "id_unidad": int(id_unidad),
             "stock_minimo": clean_float(stock_minimo),
@@ -425,6 +451,7 @@ def bulk_insert_productos(rows: list[dict]):
                 ean_serie,
                 flag_aplica_ean,
                 precio_unitario,
+                vida_util_cuenta_dias,
                 id_categoria,
                 id_unidad,
                 stock_minimo,
@@ -440,6 +467,7 @@ def bulk_insert_productos(rows: list[dict]):
                 :ean_serie,
                 :flag_aplica_ean,
                 :precio_unitario,
+                :vida_util_cuenta_dias,
                 :id_categoria,
                 :id_unidad,
                 :stock_minimo,
@@ -1609,6 +1637,8 @@ def get_dashboard_movimientos():
             CAST(ISNULL(cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
             CAST(ISNULL(precio_unitario, 0) AS DECIMAL(18,4)) AS precio_unitario,
             CAST(ISNULL(importe_soles, ISNULL(cantidad, 0) * ISNULL(precio_unitario, 0)) AS DECIMAL(18,2)) AS importe_soles,
+            ISNULL(vida_util_cuenta_dias, 0) AS vida_util_cuenta_dias,
+            fecha_vencimiento_cuenta,
             ISNULL(lote, '') AS lote,
             ISNULL(referencia, '') AS referencia,
             ISNULL(observacion, '') AS observacion,
@@ -1639,6 +1669,8 @@ def get_dashboard_movimientos():
             CAST(ISNULL(md.cantidad, 0) AS DECIMAL(18,2)) AS cantidad,
             CAST(ISNULL(p.precio_unitario, 0) AS DECIMAL(18,4)) AS precio_unitario,
             CAST(ISNULL(md.cantidad, 0) * ISNULL(p.precio_unitario, 0) AS DECIMAL(18,2)) AS importe_soles,
+            ISNULL(p.vida_util_cuenta_dias, 0) AS vida_util_cuenta_dias,
+            CAST(NULL AS DATE) AS fecha_vencimiento_cuenta,
             ISNULL(md.lote, '') AS lote,
             ISNULL(m.referencia, '') AS referencia,
             ISNULL(m.observacion, '') AS observacion,
