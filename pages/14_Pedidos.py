@@ -283,29 +283,77 @@ with tab_crear:
                     st.exception(exc)
 
 with tab_visualizar:
-    colf1, colf2 = st.columns(2)
-    with colf1:
-        solo_hoy = st.checkbox("Solo pedidos de hoy", value=True)
-    with colf2:
-        solo_creados = st.checkbox("Solo pedidos en estado CREADO", value=False)
+    if "pedidos_vis_solo_hoy" not in st.session_state:
+        st.session_state.pedidos_vis_solo_hoy = True
+    if "pedidos_vis_fecha_inicio" not in st.session_state:
+        st.session_state.pedidos_vis_fecha_inicio = date.today()
+    if "pedidos_vis_fecha_fin" not in st.session_state:
+        st.session_state.pedidos_vis_fecha_fin = date.today()
+    if "pedidos_vis_estado" not in st.session_state:
+        st.session_state.pedidos_vis_estado = ""
+
+    with st.form("form_filtros_visualizar_pedidos"):
+        colf1, colf2, colf3, colf4, colf5 = st.columns([1.05, 1, 1, 1, .75])
+        with colf1:
+            solo_hoy_input = st.checkbox(
+                "Solo pedidos de hoy",
+                value=st.session_state.pedidos_vis_solo_hoy,
+            )
+        with colf2:
+            fecha_inicio_input = st.date_input(
+                "Desde",
+                value=st.session_state.pedidos_vis_fecha_inicio,
+                disabled=solo_hoy_input,
+            )
+        with colf3:
+            fecha_fin_input = st.date_input(
+                "Hasta",
+                value=st.session_state.pedidos_vis_fecha_fin,
+                disabled=solo_hoy_input,
+            )
+        with colf4:
+            estado_options = ["", "CREADO", "EN_PICKING", "COMPLETADO", "COMPLETADO-PARCIAL", "COMPLETADO-CORTO", "CANCELADO"]
+            estado_input = st.selectbox(
+                "Estado",
+                estado_options,
+                index=estado_options.index(st.session_state.pedidos_vis_estado)
+                if st.session_state.pedidos_vis_estado in estado_options else 0,
+                format_func=lambda x: "Todos" if x == "" else x,
+            )
+        with colf5:
+            consultar = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+    if consultar:
+        if not solo_hoy_input and fecha_fin_input < fecha_inicio_input:
+            st.error("La fecha hasta no puede ser menor que la fecha desde.")
+            st.stop()
+        st.session_state.pedidos_vis_solo_hoy = bool(solo_hoy_input)
+        st.session_state.pedidos_vis_fecha_inicio = fecha_inicio_input
+        st.session_state.pedidos_vis_fecha_fin = fecha_fin_input
+        st.session_state.pedidos_vis_estado = estado_input
 
     try:
-        pedidos = get_pedidos_resumen(solo_hoy=solo_hoy, solo_creados=solo_creados)
+        pedidos = get_pedidos_resumen(
+            solo_hoy=st.session_state.pedidos_vis_solo_hoy,
+            fecha_inicio=st.session_state.pedidos_vis_fecha_inicio,
+            fecha_fin=st.session_state.pedidos_vis_fecha_fin,
+            estado=st.session_state.pedidos_vis_estado,
+        )
     except Exception as exc:
         st.error("No se pudo cargar pedidos. Ejecuta la migración 008 en Azure SQL.")
         st.exception(exc)
         st.stop()
 
     if pedidos.empty:
-        st.info("No hay pedidos para mostrar.")
+        st.info("No hay pedidos para mostrar con los filtros seleccionados.")
     else:
-        st.caption("Selecciona uno o más pedidos para eliminarlos. Solo se permite eliminar pedidos sin picking, asignación ni atención registrada.")
+        st.caption("Selecciona uno o más pedidos para eliminarlos. Solo se eliminan pedidos en estado CREADO sin atención ni cancelación registrada.")
         edited = selectable_table(pedidos, "pedidos_visualizar_editor")
         selected_ids = edited.loc[edited["seleccionar"] == True, "id_pedido"].astype(int).tolist()
 
         col_del, col_msg = st.columns([1, 3])
         eliminar = col_del.button("Eliminar pedido(s)", type="secondary", use_container_width=True)
-        col_msg.caption("La eliminación es física y está bloqueada si el pedido ya participa en un picking o tiene cantidades procesadas.")
+        col_msg.caption("Si el pedido tuvo un picking cancelado, se limpiarán esas relaciones canceladas antes de eliminar el pedido.")
 
         if eliminar:
             if not selected_ids:
@@ -313,8 +361,13 @@ with tab_visualizar:
             else:
                 try:
                     result = eliminar_pedidos(selected_ids)
-                    st.session_state["msg_pedido"] = f"Se eliminaron {result['pedidos_eliminados']} pedido(s) y {result['detalles_eliminados']} posición(es)."
+                    st.session_state["msg_pedido"] = (
+                        f"Se eliminaron {result['pedidos_eliminados']} pedido(s) "
+                        f"y {result['detalles_eliminados']} posición(es)."
+                    )
                     st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
                 except Exception as exc:
                     st.error("No se pudo eliminar el pedido seleccionado.")
                     st.exception(exc)
