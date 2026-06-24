@@ -100,50 +100,68 @@ is_admin = bool(user.get("is_admin"))
 MENU_GROUPS: list[tuple[str, list[dict]]] = []
 
 if is_admin:
-    MENU_GROUPS.append((
-        "Maestros",
-        [
-            {"path": "pages/02_Productos.py", "title": "Productos", "icon": ":material/inventory_2:"},
-            {"path": "pages/03_Ubicaciones.py", "title": "Ubicaciones", "icon": ":material/location_on:"},
-            {"path": "pages/13_Proveedores.py", "title": "Proveedores", "icon": ":material/local_shipping:"},
-            {"path": "pages/10_Areas_Logisticas.py", "title": "Áreas Logísticas", "icon": ":material/apartment:"},
-            {"path": "pages/11_Categorias_Unidades.py", "title": "Categorías y Unidades", "icon": ":material/category:"},
-            {"path": "pages/12_Usuarios.py", "title": "Usuarios", "icon": ":material/manage_accounts:"},
-        ],
-    ))
-
-MENU_GROUPS.extend([
-    (
-        "Ingresos",
-        [
-            {"path": "pages/04_Entrada_Stock.py", "title": "Entrada Stock", "icon": ":material/move_to_inbox:"},
-        ],
-    ),
-    (
-        "Salidas",
-        [
-            {"path": "pages/14_Pedidos.py", "title": "Pedidos", "icon": ":material/request_quote:"},
-            {"path": "pages/15_Picking.py", "title": "Picking", "icon": ":material/assignment:"},
-            {"path": "pages/16_Atencion_Picking.py", "title": "Atención de Picking", "icon": ":material/task_alt:"},
-            {"path": "pages/05_Salida_Cuenta.py", "title": "Salida Cuenta", "icon": ":material/output:"},
-        ],
-    ),
-    (
-        "Consultas",
-        [
-            {"path": "pages/06_Transferencias.py", "title": "Transferencias", "icon": ":material/swap_horiz:"},
-            {"path": "pages/07_Stock.py", "title": "Stock", "icon": ":material/package_2:"},
-            {"path": "pages/08_Movimientos.py", "title": "Movimientos", "icon": ":material/receipt_long:"},
-            {"path": "pages/09_Stock_Cuentas.py", "title": "Stock Cuentas", "icon": ":material/business_center:"},
-        ],
-    ),
-    (
-        "Reportes",
-        [
-            {"path": "pages/01_Dashboard.py", "title": "Dashboard", "icon": ":material/monitoring:", "default": True},
-        ],
-    ),
-])
+    # Rol Administrador: acceso completo.
+    MENU_GROUPS.extend([
+        (
+            "Maestros",
+            [
+                {"path": "pages/02_Productos.py", "title": "Productos", "icon": ":material/inventory_2:"},
+                {"path": "pages/03_Ubicaciones.py", "title": "Ubicaciones", "icon": ":material/location_on:"},
+                {"path": "pages/13_Proveedores.py", "title": "Proveedores", "icon": ":material/local_shipping:"},
+                {"path": "pages/10_Areas_Logisticas.py", "title": "Áreas Logísticas", "icon": ":material/apartment:"},
+                {"path": "pages/11_Categorias_Unidades.py", "title": "Categorías y Unidades", "icon": ":material/category:"},
+                {"path": "pages/12_Usuarios.py", "title": "Usuarios", "icon": ":material/manage_accounts:"},
+            ],
+        ),
+        (
+            "Ingresos",
+            [
+                {"path": "pages/04_Entrada_Stock.py", "title": "Entrada Stock", "icon": ":material/move_to_inbox:"},
+            ],
+        ),
+        (
+            "Salidas",
+            [
+                {"path": "pages/14_Pedidos.py", "title": "Pedidos", "icon": ":material/request_quote:"},
+                {"path": "pages/15_Picking.py", "title": "Picking", "icon": ":material/assignment:"},
+                {"path": "pages/16_Atencion_Picking.py", "title": "Atención de Picking", "icon": ":material/task_alt:"},
+                {"path": "pages/05_Salida_Cuenta.py", "title": "Salida Cuenta", "icon": ":material/output:"},
+            ],
+        ),
+        (
+            "Consultas",
+            [
+                {"path": "pages/06_Transferencias.py", "title": "Transferencias", "icon": ":material/swap_horiz:"},
+                {"path": "pages/07_Stock.py", "title": "Stock", "icon": ":material/package_2:"},
+                {"path": "pages/08_Movimientos.py", "title": "Movimientos", "icon": ":material/receipt_long:"},
+                {"path": "pages/09_Stock_Cuentas.py", "title": "Stock Cuentas", "icon": ":material/business_center:"},
+            ],
+        ),
+        (
+            "Reportes",
+            [
+                {"path": "pages/01_Dashboard.py", "title": "Dashboard", "icon": ":material/monitoring:", "default": True},
+            ],
+        ),
+    ])
+else:
+    # Rol Usuario: acceso limitado.
+    MENU_GROUPS.extend([
+        (
+            "Salidas",
+            [
+                {"path": "pages/14_Pedidos.py", "title": "Pedidos", "icon": ":material/request_quote:", "default": True},
+            ],
+        ),
+        (
+            "Consultas",
+            [
+                {"path": "pages/07_Stock.py", "title": "Stock", "icon": ":material/package_2:"},
+                {"path": "pages/09_Stock_Cuentas.py", "title": "Stock Cuentas", "icon": ":material/business_center:"},
+                {"path": "pages/08_Movimientos.py", "title": "Movimientos", "icon": ":material/receipt_long:"},
+            ],
+        ),
+    ])
 
 
 def _page_objects_from_menu(groups: list[tuple[str, list[dict]]]) -> dict:
