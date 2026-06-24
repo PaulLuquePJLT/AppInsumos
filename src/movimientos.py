@@ -347,6 +347,61 @@ def crear_pedido(
     return nro_final
 
 
+def eliminar_pedidos(ids_pedidos: list[int]) -> dict:
+    """Elimina fisicamente pedidos seleccionados si aun no tienen picking ni atencion.
+
+    Seguridad aplicada:
+    - Solo elimina pedidos sin registros en picking_pedido.
+    - Solo elimina pedidos cuyos detalles no tengan cantidades asignadas, atendidas o canceladas.
+    """
+    ids = [int(v) for v in ids_pedidos if v is not None]
+    if not ids:
+        raise ValueError("Selecciona al menos un pedido.")
+
+    placeholders = ",".join(f":p{i}" for i, _ in enumerate(ids))
+    params = {f"p{i}": int(v) for i, v in enumerate(ids)}
+
+    with get_engine().begin() as conn:
+        bloqueados = list(conn.execute(
+            text(f"""
+                SELECT DISTINCT p.nro_pedido
+                FROM pedidos p
+                LEFT JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
+                WHERE p.id_pedido IN ({placeholders})
+                  AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM picking_pedido pp
+                            WHERE pp.id_pedido = p.id_pedido
+                        )
+                        OR ISNULL(pd.cantidad_asignada, 0) > 0
+                        OR ISNULL(pd.cantidad_atendida, 0) > 0
+                        OR ISNULL(pd.cantidad_cancelada, 0) > 0
+                      )
+            """),
+            params,
+        ).mappings())
+
+        if bloqueados:
+            pedidos = ", ".join(str(r["nro_pedido"]) for r in bloqueados)
+            raise ValueError(
+                "No se pueden eliminar pedidos con picking, asignacion, atencion o cancelacion registrada: "
+                + pedidos
+            )
+
+        detalles = conn.execute(
+            text(f"DELETE FROM pedido_detalle WHERE id_pedido IN ({placeholders})"),
+            params,
+        ).rowcount or 0
+
+        pedidos_eliminados = conn.execute(
+            text(f"DELETE FROM pedidos WHERE id_pedido IN ({placeholders})"),
+            params,
+        ).rowcount or 0
+
+    return {"pedidos_eliminados": int(pedidos_eliminados), "detalles_eliminados": int(detalles)}
+
+
 def _select_stock_para_asignar(conn, id_producto: int):
     return list(conn.execute(
         text("""
