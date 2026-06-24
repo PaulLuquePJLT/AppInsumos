@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.editor_utils import apply_data_editor_state
-from src.movimientos import crear_pedido
+from src.movimientos import crear_pedido, eliminar_pedidos
 from src.queries import get_cuentas, get_next_pedido_number, get_productos_activos, get_pedidos_resumen, get_pedido_detalle
 from src.session import current_user_id
 
@@ -171,6 +171,22 @@ def limpiar_pedido():
         st.session_state.pedido_nro = "P000000001"
 
 
+def selectable_table(df: pd.DataFrame, key: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+    display = df.copy()
+    if "seleccionar" not in display.columns:
+        display.insert(0, "seleccionar", False)
+    return st.data_editor(
+        display,
+        hide_index=True,
+        use_container_width=True,
+        disabled=[c for c in display.columns if c != "seleccionar"],
+        column_config={"seleccionar": st.column_config.CheckboxColumn("Seleccionar")},
+        key=key,
+    )
+
+
 tab_crear, tab_visualizar = st.tabs(["Crear Pedido", "Visualizar pedidos"])
 
 with tab_crear:
@@ -283,9 +299,28 @@ with tab_visualizar:
     if pedidos.empty:
         st.info("No hay pedidos para mostrar.")
     else:
+        st.caption("Selecciona uno o más pedidos para eliminarlos. Solo se permite eliminar pedidos sin picking, asignación ni atención registrada.")
+        edited = selectable_table(pedidos, "pedidos_visualizar_editor")
+        selected_ids = edited.loc[edited["seleccionar"] == True, "id_pedido"].astype(int).tolist()
+
+        col_del, col_msg = st.columns([1, 3])
+        eliminar = col_del.button("Eliminar pedido(s)", type="secondary", use_container_width=True)
+        col_msg.caption("La eliminación es física y está bloqueada si el pedido ya participa en un picking o tiene cantidades procesadas.")
+
+        if eliminar:
+            if not selected_ids:
+                st.error("Selecciona al menos un pedido para eliminar.")
+            else:
+                try:
+                    result = eliminar_pedidos(selected_ids)
+                    st.session_state["msg_pedido"] = f"Se eliminaron {result['pedidos_eliminados']} pedido(s) y {result['detalles_eliminados']} posición(es)."
+                    st.rerun()
+                except Exception as exc:
+                    st.error("No se pudo eliminar el pedido seleccionado.")
+                    st.exception(exc)
+
         labels = pedidos.apply(lambda r: f"{r['nro_pedido']} | {r['nombre_cuenta']} | {r['estado']}", axis=1).tolist()
         selected_label = st.selectbox("Ver detalle de pedido", labels)
         selected = pedidos.iloc[labels.index(selected_label)]
-        st.dataframe(pedidos, use_container_width=True, hide_index=True)
         st.subheader(f"Detalle {selected['nro_pedido']}")
         st.dataframe(get_pedido_detalle(int(selected["id_pedido"])), use_container_width=True, hide_index=True)
