@@ -1358,13 +1358,40 @@ def get_next_picking_number():
     return f"PK{next_number:09d}"
 
 
-def get_pedidos_resumen(solo_hoy: bool = False, solo_creados: bool = False):
+def get_pedidos_resumen(
+    solo_hoy: bool = False,
+    solo_creados: bool = False,
+    fecha_inicio=None,
+    fecha_fin=None,
+    estado: str | None = None,
+):
+    """Consulta resumen de pedidos con filtros en SQL.
+
+    - solo_hoy=True fuerza fecha_pedido = fecha local Bogotá/Lima.
+    - Si solo_hoy=False, usa fecha_inicio y fecha_fin cuando se informan.
+    - estado vacío o None equivale a todos.
+    """
     where = []
+    params = {}
+
     if solo_hoy:
-        where.append("fecha_pedido = CAST(SYSDATETIME() AS DATE)")
+        where.append("fecha_pedido = CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), '-05:00') AS DATE)")
+    else:
+        if fecha_inicio is not None:
+            where.append("fecha_pedido >= :fecha_inicio")
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin is not None:
+            where.append("fecha_pedido <= :fecha_fin")
+            params["fecha_fin"] = fecha_fin
+
     if solo_creados:
         where.append("estado = 'CREADO'")
+    elif estado:
+        where.append("estado = :estado")
+        params["estado"] = estado
+
     where_sql = "WHERE " + " AND ".join(where) if where else ""
+
     return read_dataframe(f"""
         SELECT
             id_pedido,
@@ -1385,7 +1412,7 @@ def get_pedidos_resumen(solo_hoy: bool = False, solo_creados: bool = False):
         FROM dbo.vw_pedidos_resumen
         {where_sql}
         ORDER BY fecha_pedido DESC, nro_pedido DESC
-    """)
+    """, params)
 
 
 def get_pedidos_pendientes_detalle(solo_hoy: bool = True):
