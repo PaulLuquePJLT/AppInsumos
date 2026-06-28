@@ -59,10 +59,13 @@ def _render_table(df: pd.DataFrame, key_prefix: str):
     st.dataframe(filtered, use_container_width=True, hide_index=True)
 
 tabs = st.tabs(["Stock general", "Por ubicación", "Por cuenta", "Stock bajo mínimo"])
+stock_general_cache = None
 
 with tabs[0]:
     try:
-        stock_general = get_stock_general()
+        if stock_general_cache is None:
+            stock_general_cache = get_stock_general()
+        stock_general = stock_general_cache
         _render_table(stock_general, "stock_general")
     except Exception as exc:
         _show_db_error("stock general", exc)
@@ -83,7 +86,9 @@ with tabs[2]:
 
 with tabs[3]:
     try:
-        stock_general = get_stock_general()
+        if stock_general_cache is None:
+            stock_general_cache = get_stock_general()
+        stock_general = stock_general_cache
         if stock_general.empty:
             st.info("No hay productos para evaluar.")
         else:
