@@ -33,9 +33,12 @@ st.caption("Ahora las ubicaciones tienen secuencia de recorrido, flag stage y fl
 if "msg_ubicacion" in st.session_state:
     st.success(st.session_state.pop("msg_ubicacion"))
 
-zonas = get_zonas()
-zonas_todas = get_zonas_todas()
-ubicaciones = get_ubicaciones_todas()
+@st.cache_data(ttl=300, show_spinner=False)
+def load_ubicaciones_data():
+    return get_zonas(), get_zonas_todas(), get_ubicaciones_todas()
+
+
+zonas, zonas_todas, ubicaciones = load_ubicaciones_data()
 
 
 def _zona_id(codigo_zona: str) -> int:
@@ -152,6 +155,7 @@ with tabs[0]:
             try:
                 insert_zona(codigo_zona, nombre_zona, descripcion)
                 st.session_state["msg_ubicacion"] = "Zona agregada correctamente."
+                load_ubicaciones_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo guardar la zona."); st.exception(exc)
@@ -173,13 +177,17 @@ with tabs[1]:
         if guardar:
             try:
                 update_zona(int(selected["id_zona"]), codigo, nombre, desc, int(activo))
-                st.session_state["msg_ubicacion"] = "Zona actualizada correctamente."; st.rerun()
+                st.session_state["msg_ubicacion"] = "Zona actualizada correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar la zona."); st.exception(exc)
         if eliminar:
             try:
                 delete_zona(int(selected["id_zona"]))
-                st.session_state["msg_ubicacion"] = "Zona desactivada correctamente."; st.rerun()
+                st.session_state["msg_ubicacion"] = "Zona desactivada correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar la zona."); st.exception(exc)
 
@@ -196,7 +204,9 @@ with tabs[2]:
         else:
             st.success("Archivo validado correctamente."); st.dataframe(preview, use_container_width=True, hide_index=True)
             if st.button("Registrar", key="registrar_zonas_masivo"):
-                bulk_insert_zonas(rows); st.session_state["msg_ubicacion"] = f"Se registraron {len(rows)} zonas."; st.rerun()
+                bulk_insert_zonas(rows); st.session_state["msg_ubicacion"] = f"Se registraron {len(rows)} zonas."
+                load_ubicaciones_data.clear()
+                st.rerun()
 
 with tabs[3]:
     if zonas.empty:
@@ -221,7 +231,9 @@ with tabs[3]:
             else:
                 try:
                     insert_ubicacion(codigo, _zona_id(zona), tipo, pasillo, rack, nivel, posicion, capacidad, secuencia, int(es_surtible), int(es_stage))
-                    st.session_state["msg_ubicacion"] = "Ubicación agregada correctamente."; st.rerun()
+                    st.session_state["msg_ubicacion"] = "Ubicación agregada correctamente."
+                    load_ubicaciones_data.clear()
+                    st.rerun()
                 except Exception as exc:
                     st.error("No se pudo guardar la ubicación."); st.exception(exc)
 
@@ -253,13 +265,17 @@ with tabs[4]:
         if guardar:
             try:
                 update_ubicacion(int(selected["id_ubicacion"]), codigo, _zona_id(zona), tipo, pasillo, rack, nivel, posicion, capacidad, secuencia, int(es_surtible), int(es_stage), int(activo))
-                st.session_state["msg_ubicacion"] = "Ubicación actualizada correctamente."; st.rerun()
+                st.session_state["msg_ubicacion"] = "Ubicación actualizada correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar la ubicación."); st.exception(exc)
         if eliminar:
             try:
                 delete_ubicacion(int(selected["id_ubicacion"]))
-                st.session_state["msg_ubicacion"] = "Ubicación desactivada correctamente."; st.rerun()
+                st.session_state["msg_ubicacion"] = "Ubicación desactivada correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar la ubicación."); st.exception(exc)
 
@@ -276,7 +292,9 @@ with tabs[5]:
         else:
             st.success("Archivo validado correctamente."); st.dataframe(preview, use_container_width=True, hide_index=True)
             if st.button("Registrar", key="registrar_ubicaciones_masivo"):
-                bulk_insert_ubicaciones(rows); st.session_state["msg_ubicacion"] = f"Se registraron {len(rows)} ubicaciones."; st.rerun()
+                bulk_insert_ubicaciones(rows); st.session_state["msg_ubicacion"] = f"Se registraron {len(rows)} ubicaciones."
+                load_ubicaciones_data.clear()
+                st.rerun()
 
 with tabs[6]:
     st.subheader("Zonas")
