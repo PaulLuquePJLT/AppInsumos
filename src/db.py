@@ -6,6 +6,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.pool import NullPool
 
 T = TypeVar("T")
 
@@ -63,19 +64,16 @@ def get_engine():
         database=db_name,
     )
 
-    return create_engine(
-        url,
-        pool_pre_ping=True,
-        pool_recycle=240,
-        pool_size=3,
-        max_overflow=2,
-        pool_timeout=30,
-        future=True,
-        connect_args={
-            "login_timeout": 30,
-            "timeout": 60,
-        },
-    )
+return create_engine(
+    url,
+    poolclass=NullPool,
+    pool_pre_ping=True,
+    future=True,
+    connect_args={
+        "login_timeout": 30,
+        "timeout": 60,
+    },
+)
 
 
 def reset_engine_pool() -> None:
