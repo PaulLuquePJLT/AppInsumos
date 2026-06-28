@@ -64,20 +64,20 @@ def get_engine():
         database=db_name,
     )
 
-return create_engine(
-    url,
-    poolclass=NullPool,
-    pool_pre_ping=True,
-    future=True,
-    connect_args={
-        "login_timeout": 30,
-        "timeout": 60,
-    },
-)
+    return create_engine(
+        url,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+        future=True,
+        connect_args={
+            "login_timeout": 30,
+            "timeout": 60,
+        },
+    )
 
 
 def reset_engine_pool() -> None:
-    """Descarta el pool actual para forzar una conexión limpia en el siguiente intento."""
+    """Descarta el engine actual para forzar una conexión limpia en el siguiente intento."""
     try:
         engine = get_engine()
         engine.dispose()
@@ -117,8 +117,8 @@ def _is_retryable_db_error(exc: Exception) -> bool:
 def run_db_with_retry(operation: Callable[[], T], attempts: int = 3) -> T:
     """Ejecuta una operación SQL con reintentos.
 
-    Esto ayuda cuando Azure SQL Serverless está pausado o el pool tiene
-    una conexión stale. Si falla, se descarta el pool y se reintenta.
+    Esto ayuda cuando Azure SQL Serverless está pausado o el engine tiene
+    una conexión stale. Si falla, se descarta el engine y se reintenta.
     """
     last_exc: Exception | None = None
     delays = [2, 5, 10]
