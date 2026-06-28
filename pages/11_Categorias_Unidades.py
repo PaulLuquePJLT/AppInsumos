@@ -29,8 +29,12 @@ st.title("🗂️ Categorías y unidades")
 if "msg_maestro" in st.session_state:
     st.success(st.session_state.pop("msg_maestro"))
 
-categorias = get_categorias_todas()
-unidades = get_unidades_todas()
+@st.cache_data(ttl=300, show_spinner=False)
+def load_categorias_unidades_data():
+    return get_categorias_todas(), get_unidades_todas()
+
+
+categorias, unidades = load_categorias_unidades_data()
 
 
 def validar_categorias_excel(df: pd.DataFrame):
@@ -178,6 +182,7 @@ with tabs[0]:
             try:
                 insert_categoria(nombre_categoria, descripcion)
                 st.session_state["msg_maestro"] = "Categoría agregada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo guardar la categoría. Revisa si ya existe.")
@@ -214,6 +219,7 @@ with tabs[1]:
                     int(activo_edit),
                 )
                 st.session_state["msg_maestro"] = "Categoría actualizada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar la categoría.")
@@ -223,6 +229,7 @@ with tabs[1]:
             try:
                 delete_categoria(int(selected["id_categoria"]))
                 st.session_state["msg_maestro"] = "Categoría desactivada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar la categoría.")
@@ -263,6 +270,7 @@ with tabs[2]:
                 if st.button("Registrar", key="registrar_categorias_masivo"):
                     bulk_insert_categorias(rows)
                     st.session_state["msg_maestro"] = f"Se registraron {len(rows)} categorías correctamente."
+                    load_categorias_unidades_data.clear()
                     st.rerun()
 
         except Exception as exc:
@@ -283,6 +291,7 @@ with tabs[3]:
             try:
                 insert_unidad(codigo_unidad, nombre_unidad)
                 st.session_state["msg_maestro"] = "Unidad agregada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo guardar la unidad. Revisa si el código ya existe.")
@@ -317,6 +326,7 @@ with tabs[4]:
                     nombre_edit,
                 )
                 st.session_state["msg_maestro"] = "Unidad actualizada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar la unidad.")
@@ -326,6 +336,7 @@ with tabs[4]:
             try:
                 delete_unidad(int(selected["id_unidad"]))
                 st.session_state["msg_maestro"] = "Unidad desactivada correctamente."
+                load_categorias_unidades_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar la unidad.")
@@ -366,6 +377,7 @@ with tabs[5]:
                 if st.button("Registrar", key="registrar_unidades_masivo"):
                     bulk_insert_unidades(rows)
                     st.session_state["msg_maestro"] = f"Se registraron {len(rows)} unidades correctamente."
+                    load_categorias_unidades_data.clear()
                     st.rerun()
 
         except Exception as exc:
