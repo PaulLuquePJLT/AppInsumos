@@ -24,6 +24,15 @@ st.set_page_config(
 apply_global_theme()
 enable_auto_csv_downloads()
 
+@st.cache_resource(show_spinner=False)
+def ensure_default_admin_once(default_password: str, force_password_reset: bool) -> bool:
+    ensure_default_admin(
+        default_password,
+        force_password_reset=force_password_reset,
+    )
+    return True
+
+
 # Si el watchdog del navegador detectó 5 minutos de inactividad,
 # vuelve a esta URL con ?wms_timeout=1 y cerramos sesión.
 try:
@@ -63,13 +72,13 @@ except Exception:
 
 if default_admin_password:
     try:
-        ensure_default_admin(
+        ensure_default_admin_once(
             default_admin_password,
-            force_password_reset=force_admin_reset,
+            force_admin_reset,
         )
     except Exception:
         # Si Azure SQL Serverless está despertando, no bloqueamos toda la app.
-        # El siguiente acceso a BD reintentará con un pool limpio.
+        # El siguiente acceso a BD reintentará con una conexión limpia.
         st.session_state["db_startup_warning"] = (
             "La base de datos está despertando o rechazó la primera conexión. "
             "Intenta iniciar sesión nuevamente en unos segundos."
