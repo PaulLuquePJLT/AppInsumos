@@ -24,7 +24,12 @@ st.title("🏢 Áreas / cuentas logísticas")
 if "msg_cuenta" in st.session_state:
     st.success(st.session_state.pop("msg_cuenta"))
 
-cuentas = get_cuentas_todas()
+@st.cache_data(ttl=300, show_spinner=False)
+def load_cuentas_data():
+    return get_cuentas_todas()
+
+
+cuentas = load_cuentas_data()
 
 
 def validar_cuentas_excel(df: pd.DataFrame):
@@ -118,6 +123,7 @@ with tab_crear:
             try:
                 insert_cuenta(codigo_cuenta, nombre_cuenta, responsable, centro_costo)
                 st.session_state["msg_cuenta"] = "Área logística agregada correctamente."
+                load_cuentas_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo guardar. Revisa si el código ya existe.")
@@ -158,6 +164,7 @@ with tab_editar:
                     int(activo_edit),
                 )
                 st.session_state["msg_cuenta"] = "Área logística actualizada correctamente."
+                load_cuentas_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar.")
@@ -167,6 +174,7 @@ with tab_editar:
             try:
                 delete_cuenta(int(selected["id_cuenta"]))
                 st.session_state["msg_cuenta"] = "Área logística desactivada correctamente."
+                load_cuentas_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar.")
@@ -211,6 +219,7 @@ with tab_carga:
                 if st.button("Registrar", key="registrar_cuentas_masivo"):
                     bulk_insert_cuentas(rows)
                     st.session_state["msg_cuenta"] = f"Se registraron {len(rows)} áreas logísticas correctamente."
+                    load_cuentas_data.clear()
                     st.rerun()
 
         except Exception as exc:
