@@ -24,7 +24,14 @@ st.title("🚚 Proveedores")
 if "msg_proveedor" in st.session_state:
     st.success(st.session_state.pop("msg_proveedor"))
 
-proveedores = get_proveedores_todos()
+@st.cache_data(ttl=300, show_spinner=False)
+def load_proveedores_data():
+    return get_proveedores_todos()
+
+
+proveedores = load_proveedores_data()
+
+
 ESTADOS = ["ACTIVO", "BLOQUEADO", "INACTIVO"]
 
 
@@ -168,6 +175,7 @@ with tab_crear:
                     estado,
                 )
                 st.session_state["msg_proveedor"] = "Proveedor agregado correctamente."
+                load_proveedores_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo guardar el proveedor. Revisa si el RUC ya existe.")
@@ -227,6 +235,7 @@ with tab_editar:
                         int(activo_edit),
                     )
                     st.session_state["msg_proveedor"] = "Proveedor actualizado correctamente."
+                    load_proveedores_data.clear()
                     st.rerun()
                 except Exception as exc:
                     st.error("No se pudo actualizar el proveedor.")
@@ -236,6 +245,7 @@ with tab_editar:
             try:
                 delete_proveedor(int(selected["id_proveedor"]))
                 st.session_state["msg_proveedor"] = "Proveedor desactivado correctamente."
+                load_proveedores_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar el proveedor.")
@@ -294,6 +304,7 @@ with tab_carga:
                 if st.button("Registrar", key="registrar_proveedores_masivo"):
                     bulk_insert_proveedores(rows)
                     st.session_state["msg_proveedor"] = f"Se registraron {len(rows)} proveedores correctamente."
+                    load_proveedores_data.clear()
                     st.rerun()
 
         except Exception as exc:
