@@ -28,9 +28,12 @@ st.title("🧾 Productos")
 if "msg_producto" in st.session_state:
     st.success(st.session_state.pop("msg_producto"))
 
-categorias = get_categorias()
-unidades = get_unidades()
-productos = get_productos_todos()
+@st.cache_data(ttl=300, show_spinner=False)
+def load_productos_data():
+    return get_categorias(), get_unidades(), get_productos_todos()
+
+
+categorias, unidades, productos = load_productos_data()
 
 
 def _categoria_id(nombre_categoria: str) -> int:
@@ -294,6 +297,7 @@ with tab_crear:
                         vida_util_cuenta,
                     )
                     st.session_state["msg_producto"] = "Producto agregado correctamente."
+                    load_productos_data.clear()
                     st.rerun()
                 except Exception as exc:
                     st.error("No se pudo guardar el producto. Revisa si el SKU ya existe.")
@@ -396,6 +400,7 @@ with tab_editar:
                     vida_util_cuenta_edit,
                 )
                 st.session_state["msg_producto"] = "Producto actualizado correctamente."
+                load_productos_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo actualizar el producto.")
@@ -405,6 +410,7 @@ with tab_editar:
             try:
                 delete_producto(int(selected["id_producto"]))
                 st.session_state["msg_producto"] = "Producto desactivado correctamente."
+                load_productos_data.clear()
                 st.rerun()
             except Exception as exc:
                 st.error("No se pudo desactivar el producto.")
@@ -467,6 +473,7 @@ with tab_carga:
                 if st.button("Registrar", key="registrar_productos_masivo"):
                     bulk_insert_productos(rows)
                     st.session_state["msg_producto"] = f"Se registraron {len(rows)} productos correctamente."
+                    load_productos_data.clear()
                     st.rerun()
 
         except Exception as exc:
