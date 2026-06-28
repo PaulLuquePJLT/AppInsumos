@@ -20,8 +20,12 @@ def normalizar_lote(value):
     return value_text
 
 
-productos = get_productos_activos()
-cuentas = get_cuentas()
+@st.cache_data(ttl=120, show_spinner=False)
+def load_salida_reference_data():
+    return get_productos_activos(), get_cuentas()
+
+
+productos, cuentas = load_salida_reference_data()
 
 if productos.empty:
     st.warning("Primero registra al menos un producto activo.")
