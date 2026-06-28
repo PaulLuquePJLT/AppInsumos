@@ -199,11 +199,11 @@ def get_movimientos(fecha_inicio=None, fecha_fin=None, tipo_movimiento: str = ""
     params = {}
 
     if fecha_inicio is not None:
-        filters.append("CAST(fecha_movimiento AS DATE) >= :fecha_inicio")
+        filters.append("fecha_movimiento >= CAST(:fecha_inicio AS date)")
         params["fecha_inicio"] = fecha_inicio
-
+    
     if fecha_fin is not None:
-        filters.append("CAST(fecha_movimiento AS DATE) <= :fecha_fin")
+        filters.append("fecha_movimiento < DATEADD(DAY, 1, CAST(:fecha_fin AS date))")
         params["fecha_fin"] = fecha_fin
 
     if tipo_movimiento:
@@ -1483,11 +1483,11 @@ def get_pickings_resumen(fecha_inicio=None, fecha_fin=None, estado: str = ""):
     params = {}
 
     if fecha_inicio is not None:
-        filters.append("CAST(fecha_creacion AS DATE) >= :fecha_inicio")
+        filters.append("fecha_creacion >= CAST(:fecha_inicio AS date)")
         params["fecha_inicio"] = fecha_inicio
-
+    
     if fecha_fin is not None:
-        filters.append("CAST(fecha_creacion AS DATE) <= :fecha_fin")
+        filters.append("fecha_creacion < DATEADD(DAY, 1, CAST(:fecha_fin AS date))")
         params["fecha_fin"] = fecha_fin
 
     if estado:
