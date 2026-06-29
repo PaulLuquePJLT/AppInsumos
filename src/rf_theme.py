@@ -101,6 +101,22 @@ def apply_rf_theme(login: bool = False) -> None:
             min-width:0 !important;
         }
     """
+    login_form_css = """
+        div[data-testid="stForm"] {
+            background: rgba(255,255,255,.92) !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            border-radius: 28px !important;
+            box-shadow: 0 28px 72px rgba(20,37,52,.18) !important;
+            padding: 1.65rem 1.35rem 1.45rem 1.35rem !important;
+            backdrop-filter: blur(16px) !important;
+            margin: 0 auto !important;
+        }
+    """ if login else """
+        div[data-testid="stForm"] {
+            border: 0 !important;
+            background: transparent !important;
+        }
+    """
     st.markdown(
         f"""
         <style>
@@ -143,16 +159,6 @@ def apply_rf_theme(login: bool = False) -> None:
             letter-spacing: -0.035em;
         }}
 
-        .rf-login-card {{
-            background: rgba(255,255,255,.92);
-            border: 1px solid rgba(220,231,234,.95);
-            border-radius: 28px;
-            box-shadow: 0 28px 72px rgba(20,37,52,.18);
-            padding: 1.65rem 1.35rem 1.45rem 1.35rem;
-            backdrop-filter: blur(16px);
-            margin: 0 auto;
-        }}
-
         .rf-login-brand {{
             display:flex;
             flex-direction: column;
@@ -176,10 +182,7 @@ def apply_rf_theme(login: bool = False) -> None:
             margin-top: .45rem;
         }}
 
-        div[data-testid="stForm"] {{
-            border: 0 !important;
-            background: transparent !important;
-        }}
+        {login_form_css}
 
         .stTextInput input,
         .stNumberInput input,
@@ -214,13 +217,8 @@ def apply_rf_theme(login: bool = False) -> None:
             margin-bottom: 1rem;
         }}
 
-        .rf-product-ok {{
-            border-left: 6px solid var(--rf-teal);
-        }}
-
-        .rf-product-error {{
-            border-left: 6px solid var(--rf-danger);
-        }}
+        .rf-product-ok {{ border-left: 6px solid var(--rf-teal); }}
+        .rf-product-error {{ border-left: 6px solid var(--rf-danger); }}
 
         .rf-kicker {{
             color: var(--rf-teal-dark);
@@ -266,6 +264,9 @@ def apply_rf_theme(login: bool = False) -> None:
         }}
 
         section[data-testid="stSidebar"] {{
+            width: min(58vw, 310px) !important;
+            min-width: min(58vw, 310px) !important;
+            max-width: min(58vw, 310px) !important;
             background: linear-gradient(180deg, #0D3140 0%, #123F4B 45%, #1C6570 100%) !important;
         }}
 
@@ -273,33 +274,107 @@ def apply_rf_theme(login: bool = False) -> None:
             color: rgba(255,255,255,.92) !important;
         }}
 
+        section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+            padding: .75rem .65rem .85rem .65rem !important;
+        }}
+
         .rf-sidebar-logo {{
             display:flex;
             align-items:center;
             justify-content:center;
-            padding: 1rem .25rem 1.2rem .25rem;
-            margin-bottom: .3rem;
+            padding: .45rem .15rem .70rem .15rem !important;
+            margin-bottom: .10rem !important;
         }}
 
-        .rf-sidebar-section {{
-            font-size: .78rem;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            color: rgba(221,247,243,.78) !important;
-            margin-top: .85rem;
-            margin-bottom: .4rem;
-        }}
-
-        section[data-testid="stSidebar"] .stButton > button {{
-            background: rgba(255,255,255,.08) !important;
-            color: rgba(255,255,255,.96) !important;
-            border: 1px solid rgba(255,255,255,.11) !important;
+        section[data-testid="stSidebar"] details,
+        section[data-testid="stSidebar"] details[open] {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            margin: .20rem 0 .32rem 0 !important;
+            padding: 0 !important;
             box-shadow: none !important;
         }}
 
+        section[data-testid="stSidebar"] details summary {{
+            padding: .16rem .05rem .12rem .05rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            color: rgba(221,247,243,.90) !important;
+            font-size: .72rem !important;
+            font-weight: 900 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary:hover {{
+            background: transparent !important;
+            color: #FFFFFF !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary * {{
+            color: rgba(221,247,243,.90) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton {{ margin: 0 !important; }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 2.10rem !important;
+            height: 2.10rem !important;
+            padding: .16rem .35rem .16rem 1.10rem !important;
+            margin: .01rem 0 !important;
+            border-radius: 6px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: rgba(255,255,255,.90) !important;
+            font-size: .88rem !important;
+            font-weight: 650 !important;
+        }}
+
         section[data-testid="stSidebar"] .stButton > button:hover {{
-            background: rgba(24,169,153,.26) !important;
+            background: rgba(255,255,255,.08) !important;
+            color: #FFFFFF !important;
+            transform: none !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] button[kind="primary"] {{
+            background: rgba(24,169,153,.20) !important;
+            border-left: 3px solid var(--rf-gold) !important;
+            color: #FFFFFF !important;
+            font-weight: 820 !important;
+        }}
+
+        .rf-session-simple {{
+            margin: 1.05rem .15rem 0 .15rem !important;
+            padding-top: .55rem !important;
+            border-top: 1px solid rgba(255,255,255,.12) !important;
+        }}
+
+        .rf-session-label {{
+            color: rgba(221,247,243,.62) !important;
+            font-size: .65rem !important;
+            font-weight: 850 !important;
+            text-transform: uppercase !important;
+            letter-spacing: .075em !important;
+        }}
+
+        .rf-session-user {{
+            color: rgba(255,255,255,.94) !important;
+            font-size: .86rem !important;
+            font-weight: 780 !important;
+            line-height: 1.18 !important;
+            margin-top: .18rem !important;
+        }}
+
+        .rf-session-role {{
+            color: rgba(221,247,243,.68) !important;
+            font-size: .72rem !important;
+            margin-top: .10rem !important;
         }}
 
         [data-testid="stDataFrame"] {{
@@ -308,7 +383,6 @@ def apply_rf_theme(login: bool = False) -> None:
             border: 1px solid var(--rf-border);
             background:white;
         }}
-
 
         .rf-home-hero {{
             min-height: calc(100vh - 7rem);
@@ -378,115 +452,6 @@ def apply_rf_theme(login: bool = False) -> None:
             line-height: 1.45;
         }}
 
-        /* RF sidebar compacto: ancho reducido y menu plano */
-        section[data-testid="stSidebar"] {{
-            width: min(58vw, 310px) !important;
-            min-width: min(58vw, 310px) !important;
-            max-width: min(58vw, 310px) !important;
-        }}
-
-        section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
-            padding: .75rem .65rem .85rem .65rem !important;
-        }}
-
-        .rf-sidebar-logo {{
-            padding: .45rem .15rem .70rem .15rem !important;
-            margin-bottom: .15rem !important;
-        }}
-
-        .rf-nav-group {{
-            color: rgba(221,247,243,.88) !important;
-            font-size: .72rem !important;
-            font-weight: 900 !important;
-            letter-spacing: .075em !important;
-            text-transform: uppercase !important;
-            margin: .42rem .15rem .12rem .15rem !important;
-            padding: 0 !important;
-        }}
-
-        .rf-nav-group-second {{
-            margin-top: .70rem !important;
-        }}
-
-        section[data-testid="stSidebar"] details,
-        section[data-testid="stSidebar"] details[open] {{
-            background: transparent !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-        }}
-
-        section[data-testid="stSidebar"] details summary {{
-            padding: .18rem .05rem !important;
-            background: transparent !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-        }}
-
-        section[data-testid="stSidebar"] .stButton {{
-            margin: 0 !important;
-        }}
-
-        section[data-testid="stSidebar"] .stButton > button {{
-            justify-content: flex-start !important;
-            text-align: left !important;
-            min-height: 2.15rem !important;
-            height: 2.15rem !important;
-            padding: .18rem .35rem !important;
-            margin: .02rem 0 !important;
-            border-radius: 6px !important;
-            background: transparent !important;
-            border: 0 !important;
-            box-shadow: none !important;
-            color: rgba(255,255,255,.90) !important;
-            font-size: .88rem !important;
-            font-weight: 650 !important;
-        }}
-
-        section[data-testid="stSidebar"] .stButton > button:hover {{
-            background: rgba(255,255,255,.08) !important;
-            color: #FFFFFF !important;
-            transform: none !important;
-        }}
-
-        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
-        section[data-testid="stSidebar"] button[kind="primary"] {{
-            background: rgba(24,169,153,.20) !important;
-            border-left: 3px solid var(--rf-gold) !important;
-            color: #FFFFFF !important;
-            font-weight: 820 !important;
-        }}
-
-        .rf-session-simple {{
-            margin: 1.05rem .15rem 0 .15rem !important;
-            padding-top: .55rem !important;
-            border-top: 1px solid rgba(255,255,255,.12) !important;
-        }}
-
-        .rf-session-label {{
-            color: rgba(221,247,243,.62) !important;
-            font-size: .65rem !important;
-            font-weight: 850 !important;
-            text-transform: uppercase !important;
-            letter-spacing: .075em !important;
-        }}
-
-        .rf-session-user {{
-            color: rgba(255,255,255,.94) !important;
-            font-size: .86rem !important;
-            font-weight: 780 !important;
-            line-height: 1.18 !important;
-            margin-top: .18rem !important;
-        }}
-
-        .rf-session-role {{
-            color: rgba(221,247,243,.68) !important;
-            font-size: .72rem !important;
-            margin-top: .10rem !important;
-        }}
-
         {sidebar_css}
 
         @media (max-width: 640px) {{
@@ -494,9 +459,9 @@ def apply_rf_theme(login: bool = False) -> None:
                 max-width: 100vw !important;
                 padding-top: 4.25rem !important;
             }}
-            .rf-login-card {{
-                padding: 1.35rem 1rem 1.2rem 1rem;
-                border-radius: 24px;
+            div[data-testid="stForm"] {{
+                padding: 1.35rem 1rem 1.2rem 1rem !important;
+                border-radius: 24px !important;
             }}
             .rf-grid {{ grid-template-columns: 1fr; }}
         }}
