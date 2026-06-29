@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from src.movimientos import registrar_entrada_migo
+from datetime import date
+
+from src.movimientos import (
+    atender_tareas_picking,
+    registrar_entrada_migo,
+    registrar_transferencia_masiva,
+)
 
 
 def confirmar_ingreso_rf(
@@ -34,4 +40,36 @@ def confirmar_ingreso_rf(
         texto_cabecera=texto_cabecera,
         id_usuario=int(id_usuario),
         items=items,
+    )
+
+
+def confirmar_tarea_picking_rf(id_picking_detalle: int, id_usuario: int) -> dict:
+    """Atiende una sola tarea de picking usando la lógica de escritorio."""
+    return atender_tareas_picking([int(id_picking_detalle)], id_usuario=int(id_usuario), observacion="Atención RF")
+
+
+def confirmar_transferencia_rf(
+    id_producto: int,
+    id_ubicacion_origen: int,
+    id_ubicacion_destino: int,
+    cantidad: float,
+    id_usuario: int,
+    lote: str | None = None,
+    texto_item: str | None = None,
+) -> int:
+    """Registra una transferencia RF de una sola posición."""
+    return registrar_transferencia_masiva(
+        fecha_movimiento=date.today(),
+        texto_cabecera="Transferencia RF",
+        id_usuario=int(id_usuario),
+        items=[
+            {
+                "id_producto": int(id_producto),
+                "id_ubicacion_origen": int(id_ubicacion_origen),
+                "id_ubicacion_destino": int(id_ubicacion_destino),
+                "cantidad": float(cantidad),
+                "lote": lote or None,
+                "texto_item": texto_item or "Transferencia RF",
+            }
+        ],
     )
