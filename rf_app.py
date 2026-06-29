@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 from typing import Any
+
+import streamlit.components.v1 as components
 
 import pandas as pd
 import streamlit as st
 
 from src.auth import authenticate_user, request_password_reset, reset_password_with_code
+
+try:
+    from src.db import reset_engine_pool
+except Exception:  # compatibilidad si src.db no tiene esta función
+    def reset_engine_pool() -> None:
+        return None
 from src.rf_movimientos import (
     confirmar_ingreso_rf,
     confirmar_tarea_picking_rf,
@@ -25,7 +34,11 @@ from src.rf_queries import (
     rf_get_ubicaciones_activas,
 )
 from src.rf_theme import apply_rf_theme, load_rf_icon, logo_img, render_rf_logo_sidebar, render_rf_product_card
-from src.session import clear_auth_session, current_user, current_user_id
+from src.session import (
+    clear_auth_session,
+    current_user,
+    current_user_id,
+)
 
 
 st.set_page_config(
@@ -37,6 +50,7 @@ st.set_page_config(
 
 
 ALLOWED_ROLES = {"operario", "administrador", "admin"}
+RF_IDLE_TIMEOUT_SECONDS = 180
 
 
 def _normalize_role(value: str | None) -> str:
@@ -65,9 +79,14 @@ def _set_auth_user(user: dict) -> None:
     st.session_state.rf_auth_user = user
     st.session_state.authenticated = True
     st.session_state.auth_user = user
+    st.session_state.rf_last_activity_ts = time.time()
 
 
-def _logout() -> None:
+def _clear_rf_session_state() -> None:
+    """Limpia la sesión RF sin forzar rerun.
+
+    Se usa tanto para cierre manual como para cierre automático por inactividad.
+    """
     for key in [
         "rf_authenticated",
         "rf_auth_user",
@@ -75,17 +94,149 @@ def _logout() -> None:
         "rf_reset_identifier",
         "rf_page",
         "rf_ingreso_detalles",
+        "rf_scan_codigo",
+        "rf_lote",
+        "rf_cantidad",
+        "rf_texto_item",
+        "rf_confirm_ingreso",
+        "rf_header_id_proveedor",
+        "rf_header_proveedor",
+        "rf_header_fecha",
+        "rf_header_documento",
+        "rf_header_texto",
         "rf_picking_id",
         "rf_picking_nro",
         "rf_picking_mode",
         "rf_picking_total",
         "rf_picking_done_session",
+        "rf_cancel_picking_process",
         "rf_transfer_confirm",
+        "rf_transfer_origen",
+        "rf_transfer_producto_label",
+        "rf_transfer_lote",
+        "rf_transfer_destino",
+        "rf_transfer_cantidad",
+        "rf_stock_query",
+        "rf_stock_ubicacion",
+        "rf_last_activity_ts",
     ]:
         if key in st.session_state:
             del st.session_state[key]
     clear_auth_session()
+    try:
+        reset_engine_pool()
+    except Exception:
+        pass
+
+
+def _logout() -> None:
+    _clear_rf_session_state()
     st.rerun()
+
+
+def _handle_timeout_query_param() -> None:
+    """Cierra la sesión RF cuando el watchdog del navegador agrega ?wms_timeout=1."""
+    try:
+        if st.query_params.get("wms_timeout") or st.query_params.get("rf_timeout"):
+            _clear_rf_session_state()
+            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+            st.query_params.clear()
+            st.rerun()
+    except Exception:
+        pass
+
+
+def _enforce_rf_idle_timeout() -> bool:
+    """Valida inactividad en backend durante cada rerun de Streamlit."""
+    if not st.session_state.get("rf_authenticated"):
+        return False
+
+    now = time.time()
+    last_activity = float(st.session_state.get("rf_last_activity_ts") or now)
+
+    if now - last_activity > RF_IDLE_TIMEOUT_SECONDS:
+        _clear_rf_session_state()
+        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+        return True
+
+    st.session_state.rf_last_activity_ts = now
+    return False
+
+
+def _render_rf_idle_timeout_script(timeout_seconds: int = RF_IDLE_TIMEOUT_SECONDS) -> None:
+    """Watchdog en navegador para cerrar sesión incluso si el equipo queda en segundo plano."""
+    timeout_ms = int(timeout_seconds * 1000)
+    html = """
+    <script>
+    (function() {
+        const timeoutMs = __TIMEOUT_MS__;
+        const storageKey = "rf_wms_last_activity";
+        let timer = null;
+
+        function parentWindow() {
+            return window.parent || window;
+        }
+
+        function markActivity() {
+            try {
+                parentWindow().localStorage.setItem(storageKey, String(Date.now()));
+            } catch (e) {}
+            scheduleCheck();
+        }
+
+        function elapsedMs() {
+            try {
+                const last = Number(parentWindow().localStorage.getItem(storageKey) || Date.now());
+                return Date.now() - last;
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        function triggerTimeout() {
+            try {
+                const url = new URL(parentWindow().location.href);
+                url.searchParams.set("rf_timeout", "1");
+                parentWindow().location.href = url.toString();
+            } catch (e) {
+                parentWindow().location.href = parentWindow().location.href.split("?")[0] + "?rf_timeout=1";
+            }
+        }
+
+        function checkTimeout() {
+            if (elapsedMs() >= timeoutMs) {
+                triggerTimeout();
+                return;
+            }
+            scheduleCheck();
+        }
+
+        function scheduleCheck() {
+            if (timer) clearTimeout(timer);
+            const remaining = Math.max(1000, timeoutMs - elapsedMs());
+            timer = setTimeout(checkTimeout, remaining);
+        }
+
+        const events = ["click", "keydown", "mousemove", "touchstart", "scroll", "wheel"];
+        events.forEach(function(evt) {
+            try {
+                parentWindow().document.addEventListener(evt, markActivity, {passive: true});
+            } catch (e) {}
+        });
+
+        try {
+            parentWindow().document.addEventListener("visibilitychange", function() {
+                if (!parentWindow().document.hidden && elapsedMs() >= timeoutMs) {
+                    triggerTimeout();
+                }
+            });
+        } catch (e) {}
+
+        markActivity();
+    })();
+    </script>
+    """.replace("__TIMEOUT_MS__", str(timeout_ms))
+    components.html(html, height=0, width=0)
 
 
 def _login_brand() -> None:
@@ -104,6 +255,10 @@ def _login_brand() -> None:
 def render_login() -> None:
     apply_rf_theme(login=True)
     _init_auth_state()
+
+    timeout_message = st.session_state.pop("rf_timeout_message", None) or st.session_state.pop("timeout_message", None)
+    if timeout_message:
+        st.warning(timeout_message)
 
     if st.session_state.rf_auth_mode == "login":
         with st.form("rf_login_form"):
@@ -128,6 +283,7 @@ def render_login() -> None:
                     st.error("Este usuario no tiene rol Operario para usar la app RF.")
                 else:
                     _set_auth_user(user)
+                    st.session_state.rf_last_activity_ts = time.time()
                     st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
@@ -764,12 +920,19 @@ def render_stock() -> None:
 
 def _rf_main() -> None:
     _init_auth_state()
+    _handle_timeout_query_param()
+
     if not st.session_state.rf_authenticated:
         render_login()
         return
 
     st.session_state.authenticated = True
     st.session_state.auth_user = st.session_state.rf_auth_user
+
+    if _enforce_rf_idle_timeout():
+        st.rerun()
+
+    _render_rf_idle_timeout_script(RF_IDLE_TIMEOUT_SECONDS)
 
     apply_rf_theme(login=False)
     st.session_state.setdefault("rf_page", "Inicio")
