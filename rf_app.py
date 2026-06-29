@@ -91,8 +91,6 @@ def render_login() -> None:
     apply_rf_theme(login=True)
     _init_auth_state()
 
-    st.markdown('<div class="rf-login-card">', unsafe_allow_html=True)
-
     if st.session_state.rf_auth_mode == "login":
         with st.form("rf_login_form"):
             _login_brand()
@@ -180,31 +178,42 @@ def render_login() -> None:
             st.session_state.rf_auth_mode = "login"
             st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
 
 def _set_page(page_name: str) -> None:
     st.session_state.rf_page = page_name
 
 
+def _nav_button(label: str, page_name: str, key: str, icon: str) -> None:
+    active = st.session_state.rf_page == page_name
+    button_label = f"{icon} {label}"
+    if st.sidebar.button(
+        button_label,
+        use_container_width=True,
+        type="primary" if active else "secondary",
+        key=key,
+    ):
+        _set_page(page_name)
+        st.rerun()
+
+
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
-    st.sidebar.markdown('<div class="rf-nav-group">▣ MOVIMIENTOS</div>', unsafe_allow_html=True)
-    if st.sidebar.button("Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
-        _set_page("Ingresos")
-        st.rerun()
-    if st.sidebar.button("Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
-        _set_page("Picking")
-        st.rerun()
-    if st.sidebar.button("Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
-        _set_page("Transferencia")
-        st.rerun()
+    with st.sidebar.expander("▣ MOVIMIENTOS", expanded=True):
+        if st.button("↧  Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
+            _set_page("Ingresos")
+            st.rerun()
+        if st.button("▥  Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
+            _set_page("Picking")
+            st.rerun()
+        if st.button("⇄  Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
+            _set_page("Transferencia")
+            st.rerun()
 
-    st.sidebar.markdown('<div class="rf-nav-group rf-nav-group-second">⌕ CONSULTAS</div>', unsafe_allow_html=True)
-    if st.sidebar.button("Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
-        _set_page("Stock")
-        st.rerun()
+    with st.sidebar.expander("⌕ CONSULTAS", expanded=True):
+        if st.button("⌕  Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
+            _set_page("Stock")
+            st.rerun()
 
     user = current_user()
     display_name = f"{user.get('nombres','')} {user.get('apellidos','')}".strip() or user.get("usuario_login", "")
@@ -220,6 +229,7 @@ def render_sidebar() -> None:
     )
     if st.sidebar.button("Cerrar sesión", use_container_width=True, key="rf_logout"):
         _logout()
+
 
 def _init_ingreso_state() -> None:
     st.session_state.setdefault("rf_ingreso_detalles", [])
