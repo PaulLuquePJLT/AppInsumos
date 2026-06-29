@@ -190,21 +190,21 @@ def _set_page(page_name: str) -> None:
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
-    st.sidebar.markdown('<div class="rf-sidebar-section">Movimientos</div>', unsafe_allow_html=True)
-    if st.sidebar.button("Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary"):
-        _set_page("Ingresos")
-        st.rerun()
-    if st.sidebar.button("Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary"):
-        _set_page("Picking")
-        st.rerun()
-    if st.sidebar.button("Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary"):
-        _set_page("Transferencia")
-        st.rerun()
+    with st.sidebar.expander("▣ Movimientos", expanded=True):
+        if st.button("Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary"):
+            _set_page("Ingresos")
+            st.rerun()
+        if st.button("Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary"):
+            _set_page("Picking")
+            st.rerun()
+        if st.button("Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary"):
+            _set_page("Transferencia")
+            st.rerun()
 
-    st.sidebar.markdown('<div class="rf-sidebar-section">Consultas</div>', unsafe_allow_html=True)
-    if st.sidebar.button("Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary"):
-        _set_page("Stock")
-        st.rerun()
+    with st.sidebar.expander("⌕ Consultas", expanded=True):
+        if st.button("Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary"):
+            _set_page("Stock")
+            st.rerun()
 
     st.sidebar.divider()
     user = current_user()
@@ -214,7 +214,6 @@ def render_sidebar() -> None:
     st.sidebar.caption(f"Rol: {user.get('rol','')}")
     if st.sidebar.button("Cerrar sesión", use_container_width=True):
         _logout()
-
 
 def _init_ingreso_state() -> None:
     st.session_state.setdefault("rf_ingreso_detalles", [])
@@ -240,6 +239,27 @@ def _provider_selectbox() -> tuple[pd.DataFrame, int | None]:
     selected_label = st.selectbox("Proveedor", labels, key="rf_header_proveedor")
     selected = proveedores.iloc[labels.index(selected_label)]
     return proveedores, int(selected["id_proveedor"])
+
+
+def render_home() -> None:
+    st.markdown(
+        f"""
+        <div class="rf-home-hero">
+            <div class="rf-home-logo">{logo_img(128)}</div>
+            <div class="rf-home-title">RF WMS Block B</div>
+            <div class="rf-home-subtitle">Operación móvil de almacén</div>
+            <div class="rf-home-grid">
+                <div class="rf-home-chip">Movimientos</div>
+                <div class="rf-home-chip">Ingresos</div>
+                <div class="rf-home-chip">Picking</div>
+                <div class="rf-home-chip">Transferencia</div>
+                <div class="rf-home-chip">Stock</div>
+            </div>
+            <div class="rf-home-help">Abre el menú lateral y selecciona una función para iniciar.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_ingresos() -> None:
@@ -432,7 +452,7 @@ def render_stock() -> None:
         st.dataframe(data, use_container_width=True, hide_index=True)
 
 
-def main() -> None:
+def _rf_main() -> None:
     _init_auth_state()
     if not st.session_state.rf_authenticated:
         render_login()
@@ -443,11 +463,13 @@ def main() -> None:
     st.session_state.auth_user = st.session_state.rf_auth_user
 
     apply_rf_theme(login=False)
-    st.session_state.setdefault("rf_page", "Ingresos")
+    st.session_state.setdefault("rf_page", "Inicio")
     render_sidebar()
 
     page = st.session_state.rf_page
-    if page == "Ingresos":
+    if page == "Inicio":
+        render_home()
+    elif page == "Ingresos":
         render_ingresos()
     elif page == "Picking":
         render_placeholder("Picking RF", "Ejecución de tareas de picking por RF")
@@ -456,7 +478,12 @@ def main() -> None:
     elif page == "Stock":
         render_stock()
     else:
-        render_ingresos()
+        render_home()
 
 
-main()
+# Importante: st.navigation en modo hidden desactiva la navegación automática
+# de la carpeta pages/ para esta app RF. Así no aparecen páginas de escritorio
+# como Productos, Ubicaciones, Dashboard, etc.
+_rf_page = st.Page(_rf_main, title="RF WMS Block B")
+_rf_nav = st.navigation([_rf_page], position="hidden")
+_rf_nav.run()
