@@ -378,24 +378,113 @@ def apply_rf_theme(login: bool = False) -> None:
             line-height: 1.45;
         }}
 
-        section[data-testid="stSidebar"] details {{
-            background: rgba(255,255,255,.055) !important;
-            border: 1px solid rgba(255,255,255,.10) !important;
-            border-radius: 16px !important;
-            margin: .55rem 0 !important;
-            overflow: hidden;
+        /* RF sidebar compacto: ancho reducido y menu plano */
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 310px) !important;
+            min-width: min(58vw, 310px) !important;
+            max-width: min(58vw, 310px) !important;
+        }}
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+            padding: .75rem .65rem .85rem .65rem !important;
+        }}
+
+        .rf-sidebar-logo {{
+            padding: .45rem .15rem .70rem .15rem !important;
+            margin-bottom: .15rem !important;
+        }}
+
+        .rf-nav-group {{
+            color: rgba(221,247,243,.88) !important;
+            font-size: .72rem !important;
+            font-weight: 900 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+            margin: .42rem .15rem .12rem .15rem !important;
+            padding: 0 !important;
+        }}
+
+        .rf-nav-group-second {{
+            margin-top: .70rem !important;
+        }}
+
+        section[data-testid="stSidebar"] details,
+        section[data-testid="stSidebar"] details[open] {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
         }}
 
         section[data-testid="stSidebar"] details summary {{
-            color: rgba(221,247,243,.95) !important;
-            font-weight: 900 !important;
-            text-transform: uppercase;
-            letter-spacing: .065em;
-            padding: .65rem .75rem !important;
+            padding: .18rem .05rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
         }}
 
-        section[data-testid="stSidebar"] details[open] > summary {{
-            background: rgba(255,255,255,.10) !important;
+        section[data-testid="stSidebar"] .stButton {{
+            margin: 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 2.15rem !important;
+            height: 2.15rem !important;
+            padding: .18rem .35rem !important;
+            margin: .02rem 0 !important;
+            border-radius: 6px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: rgba(255,255,255,.90) !important;
+            font-size: .88rem !important;
+            font-weight: 650 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button:hover {{
+            background: rgba(255,255,255,.08) !important;
+            color: #FFFFFF !important;
+            transform: none !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] button[kind="primary"] {{
+            background: rgba(24,169,153,.20) !important;
+            border-left: 3px solid var(--rf-gold) !important;
+            color: #FFFFFF !important;
+            font-weight: 820 !important;
+        }}
+
+        .rf-session-simple {{
+            margin: 1.05rem .15rem 0 .15rem !important;
+            padding-top: .55rem !important;
+            border-top: 1px solid rgba(255,255,255,.12) !important;
+        }}
+
+        .rf-session-label {{
+            color: rgba(221,247,243,.62) !important;
+            font-size: .65rem !important;
+            font-weight: 850 !important;
+            text-transform: uppercase !important;
+            letter-spacing: .075em !important;
+        }}
+
+        .rf-session-user {{
+            color: rgba(255,255,255,.94) !important;
+            font-size: .86rem !important;
+            font-weight: 780 !important;
+            line-height: 1.18 !important;
+            margin-top: .18rem !important;
+        }}
+
+        .rf-session-role {{
+            color: rgba(221,247,243,.68) !important;
+            font-size: .72rem !important;
+            margin-top: .10rem !important;
         }}
 
         {sidebar_css}
