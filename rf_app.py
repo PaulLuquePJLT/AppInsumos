@@ -190,29 +190,35 @@ def _set_page(page_name: str) -> None:
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
-    with st.sidebar.expander("▣ Movimientos", expanded=True):
-        if st.button("Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary"):
-            _set_page("Ingresos")
-            st.rerun()
-        if st.button("Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary"):
-            _set_page("Picking")
-            st.rerun()
-        if st.button("Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary"):
-            _set_page("Transferencia")
-            st.rerun()
+    st.sidebar.markdown('<div class="rf-nav-group">▣ MOVIMIENTOS</div>', unsafe_allow_html=True)
+    if st.sidebar.button("Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
+        _set_page("Ingresos")
+        st.rerun()
+    if st.sidebar.button("Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
+        _set_page("Picking")
+        st.rerun()
+    if st.sidebar.button("Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
+        _set_page("Transferencia")
+        st.rerun()
 
-    with st.sidebar.expander("⌕ Consultas", expanded=True):
-        if st.button("Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary"):
-            _set_page("Stock")
-            st.rerun()
+    st.sidebar.markdown('<div class="rf-nav-group rf-nav-group-second">⌕ CONSULTAS</div>', unsafe_allow_html=True)
+    if st.sidebar.button("Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
+        _set_page("Stock")
+        st.rerun()
 
-    st.sidebar.divider()
     user = current_user()
     display_name = f"{user.get('nombres','')} {user.get('apellidos','')}".strip() or user.get("usuario_login", "")
-    st.sidebar.caption("Sesión activa")
-    st.sidebar.write(f"**{display_name}**")
-    st.sidebar.caption(f"Rol: {user.get('rol','')}")
-    if st.sidebar.button("Cerrar sesión", use_container_width=True):
+    st.sidebar.markdown(
+        f'''
+        <div class="rf-session-simple">
+            <div class="rf-session-label">Sesión activa</div>
+            <div class="rf-session-user">{display_name}</div>
+            <div class="rf-session-role">Rol: {user.get('rol','')}</div>
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Cerrar sesión", use_container_width=True, key="rf_logout"):
         _logout()
 
 def _init_ingreso_state() -> None:
