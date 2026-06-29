@@ -263,6 +263,81 @@ def apply_rf_theme(login: bool = False) -> None:
             margin-top: .12rem;
         }}
 
+        .rf-task-counter {{
+            text-align:right;
+            color: var(--rf-teal-dark);
+            font-weight:900;
+            letter-spacing:.02em;
+            margin-top:-.5rem;
+            margin-bottom:.5rem;
+        }}
+
+        .rf-task-main {{
+            background: rgba(255,255,255,.94);
+            border-radius: 24px;
+            border: 1px solid rgba(220,231,234,.95);
+            box-shadow: 0 20px 44px rgba(15,74,85,.12);
+            padding: 1.05rem;
+            margin-bottom: 1rem;
+        }}
+
+        .rf-task-big-label {{
+            color: var(--rf-muted);
+            text-transform: uppercase;
+            font-size: .70rem;
+            font-weight: 850;
+            letter-spacing: .06em;
+        }}
+
+        .rf-task-big-value {{
+            color: var(--rf-navy);
+            font-size: 1.65rem;
+            font-weight: 950;
+            line-height: 1.05;
+            margin-bottom: .65rem;
+        }}
+
+        .rf-picking-card {{
+            background: rgba(255,255,255,.92);
+            border: 1px solid rgba(220,231,234,.92);
+            border-left: 6px solid var(--rf-teal);
+            border-radius: 22px;
+            padding: .95rem;
+            box-shadow: 0 16px 36px rgba(15,74,85,.10);
+            margin-bottom: .85rem;
+        }}
+
+        .rf-picking-title {{
+            color: var(--rf-navy);
+            font-size: 1.25rem;
+            font-weight: 950;
+            margin-bottom: .2rem;
+        }}
+
+        .rf-picking-sub {{
+            color: var(--rf-muted);
+            font-size: .84rem;
+            font-weight: 650;
+            line-height: 1.35;
+        }}
+
+        .rf-pill-row {{
+            display:flex;
+            flex-wrap:wrap;
+            gap:.35rem;
+            margin-top:.75rem;
+        }}
+
+        .rf-pill {{
+            background: rgba(24,169,153,.12);
+            color: var(--rf-teal-dark);
+            border: 1px solid rgba(24,169,153,.16);
+            border-radius: 999px;
+            padding: .30rem .55rem;
+            font-size: .75rem;
+            font-weight: 850;
+        }}
+
         section[data-testid="stSidebar"] {{
             width: min(58vw, 310px) !important;
             min-width: min(58vw, 310px) !important;
@@ -291,13 +366,13 @@ def apply_rf_theme(login: bool = False) -> None:
             background: transparent !important;
             border: 0 !important;
             border-radius: 0 !important;
-            margin: .20rem 0 .32rem 0 !important;
+            margin: .12rem 0 .20rem 0 !important;
             padding: 0 !important;
             box-shadow: none !important;
         }}
 
         section[data-testid="stSidebar"] details summary {{
-            padding: .16rem .05rem .12rem .05rem !important;
+            padding: .12rem .05rem .10rem .05rem !important;
             background: transparent !important;
             border: 0 !important;
             border-radius: 0 !important;
@@ -322,17 +397,24 @@ def apply_rf_theme(login: bool = False) -> None:
         section[data-testid="stSidebar"] .stButton > button {{
             justify-content: flex-start !important;
             text-align: left !important;
-            min-height: 2.10rem !important;
-            height: 2.10rem !important;
-            padding: .16rem .35rem .16rem 1.10rem !important;
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            padding: .12rem .35rem .12rem .95rem !important;
             margin: .01rem 0 !important;
             border-radius: 6px !important;
             background: transparent !important;
             border: 0 !important;
             box-shadow: none !important;
             color: rgba(255,255,255,.90) !important;
-            font-size: .88rem !important;
-            font-weight: 650 !important;
+            font-size: .86rem !important;
+            font-weight: 690 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
         }}
 
         section[data-testid="stSidebar"] .stButton > button:hover {{
@@ -350,8 +432,8 @@ def apply_rf_theme(login: bool = False) -> None:
         }}
 
         .rf-session-simple {{
-            margin: 1.05rem .15rem 0 .15rem !important;
-            padding-top: .55rem !important;
+            margin: .85rem .15rem 0 .15rem !important;
+            padding-top: .50rem !important;
             border-top: 1px solid rgba(255,255,255,.12) !important;
         }}
 
