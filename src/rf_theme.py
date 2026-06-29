@@ -309,6 +309,95 @@ def apply_rf_theme(login: bool = False) -> None:
             background:white;
         }}
 
+
+        .rf-home-hero {{
+            min-height: calc(100vh - 7rem);
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            text-align:center;
+            padding: 1.25rem;
+            border-radius: 30px;
+            background:
+                radial-gradient(circle at 50% 20%, rgba(255,255,255,.92), rgba(255,255,255,.62) 42%, rgba(221,247,243,.38) 100%);
+            border: 1px solid rgba(220,231,234,.55);
+            box-shadow: 0 28px 72px rgba(20,37,52,.12);
+            backdrop-filter: blur(10px);
+        }}
+
+        .rf-home-logo {{
+            width: 150px;
+            height: 150px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 22px 30px rgba(14,86,99,.20));
+        }}
+
+        .rf-home-title {{
+            color: var(--rf-navy);
+            font-size: clamp(2rem, 8vw, 3rem);
+            line-height: 1.02;
+            font-weight: 950;
+            letter-spacing: -.06em;
+        }}
+
+        .rf-home-subtitle {{
+            color: var(--rf-muted);
+            font-size: 1rem;
+            font-weight: 700;
+            margin-top: .55rem;
+            margin-bottom: 1.2rem;
+        }}
+
+        .rf-home-grid {{
+            display:flex;
+            flex-wrap:wrap;
+            justify-content:center;
+            gap:.55rem;
+            margin: .35rem auto 1.05rem auto;
+            max-width: 420px;
+        }}
+
+        .rf-home-chip {{
+            background: rgba(24,169,153,.12);
+            border: 1px solid rgba(24,169,153,.18);
+            color: var(--rf-teal-dark);
+            font-weight: 850;
+            border-radius: 999px;
+            padding: .48rem .8rem;
+            font-size: .86rem;
+        }}
+
+        .rf-home-help {{
+            color: var(--rf-muted);
+            font-weight: 650;
+            max-width: 360px;
+            line-height: 1.45;
+        }}
+
+        section[data-testid="stSidebar"] details {{
+            background: rgba(255,255,255,.055) !important;
+            border: 1px solid rgba(255,255,255,.10) !important;
+            border-radius: 16px !important;
+            margin: .55rem 0 !important;
+            overflow: hidden;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            color: rgba(221,247,243,.95) !important;
+            font-weight: 900 !important;
+            text-transform: uppercase;
+            letter-spacing: .065em;
+            padding: .65rem .75rem !important;
+        }}
+
+        section[data-testid="stSidebar"] details[open] > summary {{
+            background: rgba(255,255,255,.10) !important;
+        }}
+
         {sidebar_css}
 
         @media (max-width: 640px) {{
