@@ -534,6 +534,209 @@ def apply_rf_theme(login: bool = False) -> None:
             line-height: 1.45;
         }}
 
+
+        /* RF compact mode: hide invisible components, compact widgets and align menu. */
+        div[data-testid="stIFrame"],
+        iframe[srcdoc] {{
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+        }}
+
+        h1 {{
+            font-size: clamp(2.05rem, 8vw, 2.65rem) !important;
+            line-height: .98 !important;
+            margin-bottom: .25rem !important;
+        }}
+
+        .block-container {{
+            padding-top: 4.0rem !important;
+            padding-left: .85rem !important;
+            padding-right: .85rem !important;
+            padding-bottom: 1.25rem !important;
+        }}
+
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: .25rem !important;
+        }}
+
+        .stTabs button {{
+            font-size: .86rem !important;
+            padding: .25rem .35rem !important;
+        }}
+
+        .stTextInput label,
+        .stTextArea label,
+        .stSelectbox label,
+        .stDateInput label,
+        .stNumberInput label {{
+            font-size: .82rem !important;
+            font-weight: 700 !important;
+            margin-bottom: .10rem !important;
+        }}
+
+        .stTextInput input,
+        .stNumberInput input,
+        .stTextArea textarea,
+        .stSelectbox [data-baseweb="select"] > div,
+        .stDateInput input {{
+            min-height: 2.28rem !important;
+            height: 2.28rem !important;
+            font-size: .88rem !important;
+            border-radius: 12px !important;
+        }}
+
+        .stTextArea textarea {{
+            min-height: 4.6rem !important;
+            height: 4.6rem !important;
+        }}
+
+        .stButton > button,
+        .stFormSubmitButton > button,
+        .stDownloadButton > button {{
+            min-height: 2.38rem !important;
+            height: 2.38rem !important;
+            border-radius: 12px !important;
+            font-size: .88rem !important;
+            padding-top: .18rem !important;
+            padding-bottom: .18rem !important;
+        }}
+
+        .rf-card,
+        .rf-picking-card,
+        .rf-task-main {{
+            padding: .72rem !important;
+            border-radius: 18px !important;
+            margin-bottom: .62rem !important;
+        }}
+
+        .rf-card-compact {{
+            padding: .58rem !important;
+        }}
+
+        .rf-kicker {{
+            font-size: .64rem !important;
+            letter-spacing: .05em !important;
+        }}
+
+        .rf-product-title {{
+            font-size: .92rem !important;
+            margin: .18rem 0 .35rem 0 !important;
+        }}
+
+        .rf-grid {{
+            gap: .35rem !important;
+        }}
+
+        .rf-grid-compact {{
+            grid-template-columns: 1fr 1fr !important;
+            gap: .28rem !important;
+        }}
+
+        .rf-field {{
+            padding: .34rem .42rem !important;
+            border-radius: 11px !important;
+        }}
+
+        .rf-label {{
+            font-size: .58rem !important;
+        }}
+
+        .rf-value {{
+            font-size: .74rem !important;
+            line-height: 1.15 !important;
+        }}
+
+        .rf-task-header {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:.5rem;
+            margin-bottom:.38rem;
+        }}
+
+        .rf-task-pk {{
+            color: var(--rf-muted);
+            font-size: .70rem;
+            font-weight: 850;
+        }}
+
+        .rf-task-counter {{
+            margin:0 !important;
+            text-align:right;
+            color: var(--rf-teal-dark);
+            font-size:.78rem;
+            font-weight:950;
+            background: rgba(24,169,153,.12);
+            border: 1px solid rgba(24,169,153,.15);
+            padding:.18rem .45rem;
+            border-radius:999px;
+        }}
+
+        .rf-task-row {{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap:.55rem;
+            align-items:start;
+        }}
+
+        .rf-task-big-label {{
+            font-size: .58rem !important;
+            letter-spacing: .045em !important;
+        }}
+
+        .rf-task-big-value {{
+            font-size: 1.18rem !important;
+            margin-bottom: .35rem !important;
+        }}
+
+        .rf-location-value {{
+            font-size: 1.35rem !important;
+        }}
+
+        .rf-qty-value {{
+            font-size: 1.05rem !important;
+        }}
+
+        .rf-task-product {{
+            color: var(--rf-navy);
+            font-size:.86rem;
+            font-weight:850;
+            line-height:1.15;
+            margin: .08rem 0 .42rem 0;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 305px) !important;
+            min-width: min(58vw, 305px) !important;
+            max-width: min(58vw, 305px) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 1.95rem !important;
+            height: 1.95rem !important;
+            padding: .10rem .30rem .10rem .58rem !important;
+            margin: .005rem 0 !important;
+            border-radius: 7px !important;
+            font-size: .78rem !important;
+            line-height:1.0 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        #MainMenu {{ visibility: hidden; }}
+
         {sidebar_css}
 
         @media (max-width: 640px) {{
