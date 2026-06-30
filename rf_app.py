@@ -262,12 +262,12 @@ def render_login() -> None:
         st.warning(timeout_message)
 
     if st.session_state.rf_auth_mode == "login":
-        with st.form("rf_login_form"):
+        with st.container(border=True):
             _login_brand()
-            usuario = st.text_input("Usuario o correo")
-            password = st.text_input("Contraseña", type="password")
-            ingresar = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
-            forgot = st.form_submit_button("¿Olvidaste tu contraseña?", use_container_width=True)
+            usuario = st.text_input("Usuario o correo", key="rf_login_identifier")
+            password = st.text_input("Contraseña", type="password", key="rf_login_password")
+            ingresar = st.button("Ingresar", use_container_width=True, type="primary", key="rf_login_btn")
+            forgot = st.button("¿Olvidaste tu contraseña?", use_container_width=True, key="rf_login_forgot_btn")
 
         if ingresar:
             try:
@@ -294,12 +294,12 @@ def render_login() -> None:
             st.rerun()
 
     elif st.session_state.rf_auth_mode == "forgot_request":
-        with st.form("rf_forgot_request_form"):
+        with st.container(border=True):
             _login_brand()
             st.write("Ingresa tu usuario o correo registrado para recibir un código de recuperación.")
-            identifier = st.text_input("Usuario o correo")
-            enviar = st.form_submit_button("Enviar código", use_container_width=True, type="primary")
-            volver = st.form_submit_button("Volver al login", use_container_width=True)
+            identifier = st.text_input("Usuario o correo", key="rf_forgot_identifier")
+            enviar = st.button("Enviar código", use_container_width=True, type="primary", key="rf_forgot_send")
+            volver = st.button("Volver al login", use_container_width=True, key="rf_forgot_back")
 
         if enviar:
             if not identifier.strip():
@@ -321,14 +321,14 @@ def render_login() -> None:
             st.rerun()
 
     elif st.session_state.rf_auth_mode == "forgot_verify":
-        with st.form("rf_forgot_verify_form"):
+        with st.container(border=True):
             _login_brand()
-            identifier = st.text_input("Usuario o correo", value=st.session_state.rf_reset_identifier)
-            code = st.text_input("Código recibido")
-            new_password = st.text_input("Nueva contraseña", type="password")
-            confirm_password = st.text_input("Confirmar nueva contraseña", type="password")
-            cambiar = st.form_submit_button("Restablecer contraseña", use_container_width=True, type="primary")
-            volver = st.form_submit_button("Volver al login", use_container_width=True)
+            identifier = st.text_input("Usuario o correo", value=st.session_state.rf_reset_identifier, key="rf_verify_identifier")
+            code = st.text_input("Código recibido", key="rf_verify_code")
+            new_password = st.text_input("Nueva contraseña", type="password", key="rf_verify_new_password")
+            confirm_password = st.text_input("Confirmar nueva contraseña", type="password", key="rf_verify_confirm_password")
+            cambiar = st.button("Restablecer contraseña", use_container_width=True, type="primary", key="rf_verify_change")
+            volver = st.button("Volver al login", use_container_width=True, key="rf_verify_back")
 
         if cambiar:
             if not identifier.strip() or not code.strip():
@@ -349,7 +349,6 @@ def render_login() -> None:
             st.session_state.rf_auth_mode = "login"
             st.rerun()
 
-
 def _set_page(page_name: str) -> None:
     st.session_state.rf_page = page_name
     st.session_state.rf_collapse_sidebar = True
@@ -367,60 +366,73 @@ def _render_auto_collapse_sidebar() -> None:
     html = """
     <script>
     (function() {
-        function closeSidebar() {
+        function closeSidebarAttempt() {
             const doc = window.parent.document;
+            const candidates = [];
             const selectors = [
                 '[data-testid="stSidebarCollapseButton"] button',
                 '[data-testid="stSidebarCollapseButton"]',
                 'button[title="Close sidebar"]',
-                'button[aria-label="Close sidebar"]'
+                'button[aria-label="Close sidebar"]',
+                'button[aria-label="Collapse sidebar"]',
+                'button[title="Collapse sidebar"]'
             ];
-            for (const selector of selectors) {
-                const el = doc.querySelector(selector);
-                if (el) { el.click(); return; }
-            }
-            const buttons = Array.from(doc.querySelectorAll('button'));
-            const collapseButton = buttons.find(function(btn) {
-                const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
-                return label.includes('close sidebar') || label.includes('collapse') || label.includes('ocultar');
+            selectors.forEach(function(selector) {
+                doc.querySelectorAll(selector).forEach(function(el) { candidates.push(el); });
             });
-            if (collapseButton) collapseButton.click();
+            Array.from(doc.querySelectorAll('button')).forEach(function(btn) {
+                const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
+                const text = (btn.innerText || '').trim();
+                if (
+                    label.includes('close sidebar') ||
+                    label.includes('collapse') ||
+                    label.includes('ocultar') ||
+                    label.includes('cerrar') ||
+                    text.includes('«') ||
+                    text.includes('‹') ||
+                    text.includes('<<')
+                ) {
+                    candidates.push(btn);
+                }
+            });
+            for (const el of candidates) {
+                try {
+                    if (el && el.offsetParent !== null) {
+                        el.click();
+                        return true;
+                    }
+                } catch (e) {}
+            }
+            return false;
         }
-        setTimeout(closeSidebar, 80);
-        setTimeout(closeSidebar, 250);
+        let attempts = 0;
+        const timer = setInterval(function() {
+            attempts += 1;
+            if (closeSidebarAttempt() || attempts >= 18) {
+                clearInterval(timer);
+            }
+        }, 120);
     })();
     </script>
     """
     components.html(html, height=0, width=0)
 
-
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
-    st.session_state.setdefault("rf_group_movimientos", False)
-    st.session_state.setdefault("rf_group_consultas", False)
-
-    if st.sidebar.button("▣ MOVIMIENTOS", use_container_width=True, key="rf_group_btn_movimientos"):
-        _toggle_group("rf_group_movimientos")
-        st.rerun()
-
-    if st.session_state.get("rf_group_movimientos"):
-        if st.sidebar.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
+    with st.sidebar.expander("▣ MOVIMIENTOS", expanded=False):
+        if st.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
             _set_page("Ingresos")
             st.rerun()
-        if st.sidebar.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
+        if st.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
             _set_page("Picking")
             st.rerun()
-        if st.sidebar.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
+        if st.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
             _set_page("Transferencia")
             st.rerun()
 
-    if st.sidebar.button("⌕ CONSULTAS", use_container_width=True, key="rf_group_btn_consultas"):
-        _toggle_group("rf_group_consultas")
-        st.rerun()
-
-    if st.session_state.get("rf_group_consultas"):
-        if st.sidebar.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
+    with st.sidebar.expander("⌕ CONSULTAS", expanded=False):
+        if st.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
             _set_page("Stock")
             st.rerun()
 
@@ -438,7 +450,6 @@ def render_sidebar() -> None:
     )
     if st.sidebar.button("Cerrar sesión", use_container_width=True, key="rf_logout"):
         _logout()
-
 
 def render_home() -> None:
     st.markdown(
@@ -861,6 +872,29 @@ def render_transferencia() -> None:
     prod = productos.iloc[product_labels.index(producto_label)]
     product_rows = stock_origen[stock_origen["id_producto"] == prod["id_producto"]].copy()
 
+    # Si existen varios lotes para el producto en la ubicación, el disponible
+    # debe mostrarse por lote seleccionado, no por total del código.
+    lotes_disponibles = (
+        product_rows.assign(lote_key=product_rows["lote"].fillna("").astype(str))
+        .groupby("lote_key", as_index=False)
+        .agg(cantidad_disponible=("cantidad_disponible", "sum"))
+        .sort_values("lote_key")
+    )
+
+    if len(lotes_disponibles) > 1:
+        lote_labels = [l if l else "Sin lote" for l in lotes_disponibles["lote_key"].tolist()]
+        lote_label = st.selectbox("Lote", lote_labels, key="rf_transfer_lote")
+        lote = "" if lote_label == "Sin lote" else lote_label
+        stock_lote = product_rows[product_rows["lote"].fillna("").astype(str) == lote].iloc[0].copy()
+        disponible_lote = float(lotes_disponibles.loc[lotes_disponibles["lote_key"] == lote, "cantidad_disponible"].iloc[0])
+        stock_lote["cantidad_disponible"] = disponible_lote
+    else:
+        stock_lote = product_rows.iloc[0].copy()
+        lote = str(stock_lote.get("lote") or "")
+        disponible_lote = float(stock_lote.get("cantidad_disponible") or 0)
+        if lote:
+            st.info(f"Lote: {lote}")
+
     st.markdown(
         f"""
         <div class="rf-card rf-card-compact">
@@ -868,24 +902,14 @@ def render_transferencia() -> None:
             <div class="rf-product-title">{prod['sku']} - {prod['nombre_producto']}</div>
             <div class="rf-grid rf-grid-compact">
                 <div class="rf-field"><div class="rf-label">Ubicación</div><div class="rf-value">{origen}</div></div>
-                <div class="rf-field"><div class="rf-label">Disponible</div><div class="rf-value">{float(prod['cantidad_disponible']):,.2f} {prod['codigo_unidad']}</div></div>
+                <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{lote if lote else '-'}</div></div>
+                <div class="rf-field"><div class="rf-label">Disponible lote</div><div class="rf-value">{disponible_lote:,.2f} {prod['codigo_unidad']}</div></div>
+                <div class="rf-field"><div class="rf-label">Disponible total código</div><div class="rf-value">{float(prod['cantidad_disponible']):,.2f} {prod['codigo_unidad']}</div></div>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    lotes = product_rows["lote"].fillna("").astype(str).tolist()
-    if len(product_rows) > 1:
-        lote_labels = [l if l else "Sin lote" for l in lotes]
-        lote_label = st.selectbox("Lote", lote_labels, key="rf_transfer_lote")
-        lote = "" if lote_label == "Sin lote" else lote_label
-        stock_lote = product_rows[product_rows["lote"].fillna("").astype(str) == lote].iloc[0]
-    else:
-        stock_lote = product_rows.iloc[0]
-        lote = str(stock_lote.get("lote") or "")
-        if lote:
-            st.info(f"Lote: {lote}")
 
     destino = st.text_input(
         "Ubicación destino",
