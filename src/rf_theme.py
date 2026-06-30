@@ -102,14 +102,40 @@ def apply_rf_theme(login: bool = False) -> None:
         }
     """
     login_form_css = """
-        div[data-testid="stForm"] {
+        /* Login RF: tarjeta única, compacta y centrada horizontalmente. */
+        .block-container {
+            width: min(92vw, 400px) !important;
+            max-width: 400px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: .75rem !important;
+            padding-right: .75rem !important;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            width: min(88vw, 380px) !important;
+            max-width: 380px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             background: rgba(255,255,255,.92) !important;
             border: 1px solid rgba(220,231,234,.95) !important;
             border-radius: 28px !important;
             box-shadow: 0 28px 72px rgba(20,37,52,.18) !important;
-            padding: 1.65rem 1.35rem 1.45rem 1.35rem !important;
+            padding: 1.35rem 1.15rem 1.18rem 1.15rem !important;
             backdrop-filter: blur(16px) !important;
-            margin: 0 auto !important;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] > div {
+            background: transparent !important;
+            border: 0 !important;
+            padding: 0 !important;
+        }
+
+        div[data-testid="stForm"] {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            padding: 0 !important;
         }
     """ if login else """
         div[data-testid="stForm"] {
@@ -737,6 +763,43 @@ def apply_rf_theme(login: bool = False) -> None:
 
         #MainMenu {{ visibility: hidden; }}
 
+        /* Ajustes finales RF: expander nativo compacto con flecha visible y funciones sangradas. */
+        section[data-testid="stSidebar"] details {{
+            margin: .14rem 0 .42rem 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            padding: .18rem .05rem .16rem .05rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            font-size: .74rem !important;
+            font-weight: 900 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary svg,
+        section[data-testid="stSidebar"] details summary * {{
+            color: rgba(221,247,243,.92) !important;
+            fill: rgba(221,247,243,.92) !important;
+        }}
+
+        section[data-testid="stSidebar"] details .stButton > button {{
+            padding-left: 1.15rem !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }}
+
+        section[data-testid="stSidebar"] details .stButton > button p,
+        section[data-testid="stSidebar"] details .stButton > button div {{
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
         {sidebar_css}
 
         @media (max-width: 640px) {{
@@ -750,6 +813,157 @@ def apply_rf_theme(login: bool = False) -> None:
             }}
             .rf-grid {{ grid-template-columns: 1fr; }}
         }}
+
+
+        /* Ajustes RF finales: ocultar iframes de scripts, compactar home, menú y picking. */
+        div[data-testid="stElementContainer"]:has(iframe),
+        div[data-testid="stIFrame"],
+        iframe[srcdoc] {{
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 300px) !important;
+            min-width: min(58vw, 300px) !important;
+            max-width: min(58vw, 300px) !important;
+        }}
+
+        section[data-testid="stSidebar"] details,
+        section[data-testid="stSidebar"] details[open] {{
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            margin: .05rem 0 .25rem 0 !important;
+            padding: 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            padding: .15rem .05rem .12rem .05rem !important;
+            color: rgba(221,247,243,.92) !important;
+            font-size: .72rem !important;
+            font-weight: 920 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary:hover {{
+            background: transparent !important;
+            color: #FFFFFF !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            padding: .12rem .35rem .12rem 1.15rem !important;
+            margin: .01rem 0 !important;
+            border-radius: 6px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: rgba(255,255,255,.90) !important;
+            font-size: .86rem !important;
+            font-weight: 700 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] button[kind="primary"] {{
+            background: rgba(24,169,153,.20) !important;
+            border-left: 3px solid var(--rf-gold) !important;
+            color: #FFFFFF !important;
+            font-weight: 830 !important;
+        }}
+
+        .rf-home-hero {{
+            min-height: auto !important;
+            padding: .85rem !important;
+            border-radius: 22px !important;
+            margin-top: .25rem !important;
+        }}
+
+        .rf-home-logo {{
+            width: 88px !important;
+            height: 88px !important;
+            margin-bottom: .55rem !important;
+        }}
+
+        .rf-home-title {{
+            font-size: clamp(1.45rem, 6.3vw, 2rem) !important;
+            letter-spacing: -.045em !important;
+        }}
+
+        .rf-home-subtitle {{
+            font-size: .78rem !important;
+            margin-top: .25rem !important;
+            margin-bottom: .55rem !important;
+        }}
+
+        .rf-home-grid {{
+            gap: .25rem !important;
+            margin: .15rem auto .55rem auto !important;
+        }}
+
+        .rf-home-chip {{
+            padding: .25rem .45rem !important;
+            font-size: .70rem !important;
+        }}
+
+        .rf-home-help {{
+            font-size: .76rem !important;
+            line-height: 1.25 !important;
+        }}
+
+        .rf-task-main {{
+            padding: .62rem !important;
+            border-radius: 16px !important;
+            margin-bottom: .48rem !important;
+        }}
+
+        .rf-task-header {{
+            display:flex !important;
+            align-items:center !important;
+            justify-content:space-between !important;
+            gap:.35rem !important;
+            margin-bottom:.35rem !important;
+        }}
+
+        .rf-task-counter {{
+            margin:0 !important;
+            text-align:right !important;
+            font-size:.78rem !important;
+            color: var(--rf-teal-dark) !important;
+            font-weight:900 !important;
+        }}
+
+        .rf-task-pk {{
+            font-size:.78rem !important;
+            font-weight:900 !important;
+            color: var(--rf-navy) !important;
+        }}
+
+        .rf-task-big-label {{ font-size:.60rem !important; }}
+        .rf-task-big-value {{ font-size:1.25rem !important; margin-bottom:.35rem !important; }}
+        .rf-task-product {{ font-size:.86rem !important; line-height:1.2 !important; margin-bottom:.35rem !important; font-weight:800 !important; }}
+        .rf-field {{ padding:.38rem .44rem !important; border-radius:10px !important; }}
+        .rf-label {{ font-size:.58rem !important; }}
+        .rf-value {{ font-size:.72rem !important; line-height:1.15 !important; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -804,3 +1018,4 @@ def render_rf_product_card(product: dict | None, searched_code: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
