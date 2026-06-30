@@ -58,9 +58,23 @@ def normalizar_flag_ean(value) -> str:
     return "SI" if clean_upper(value) == "SI" else "NO"
 
 
+def normalizar_ean_excel(value) -> str:
+    value_text = clean_text(value)
+
+    if value_text == "" or value_text.lower() in {"nan", "none", "null"}:
+        return ""
+
+    if value_text.endswith(".0"):
+        maybe_int = value_text[:-2]
+        if maybe_int.isdigit():
+            return maybe_int
+
+    return value_text
+
+
 def validar_ean13(flag_aplica_ean: str, ean_serie: str) -> str | None:
     flag = normalizar_flag_ean(flag_aplica_ean)
-    ean = clean_text(ean_serie)
+    ean = normalizar_ean_excel(ean_serie)
 
     if flag == "SI" and not ean:
         return "El EAN 13 es obligatorio cuando Flag si aplica ean = SI."
@@ -129,7 +143,7 @@ def validar_productos_excel(df: pd.DataFrame):
         sku = clean_upper(row["sku"])
         nombre_producto = clean_text(row["nombre_producto"])
         descripcion = clean_text(row["descripcion"])
-        ean_serie = clean_text(row["ean_serie"])
+        ean_serie = normalizar_ean_excel(row["ean_serie"])
         flag_aplica_ean = normalizar_flag_ean(row["flag_aplica_ean"])
         try:
             precio_unitario = to_float(row["precio_unitario"], 0.0)
@@ -213,7 +227,7 @@ def validar_productos_excel(df: pd.DataFrame):
                 "sku": sku,
                 "nombre_producto": nombre_producto,
                 "descripcion": descripcion,
-                "ean_serie": ean_serie,
+                "ean_serie": ean_serie or None,
                 "flag_aplica_ean": flag_aplica_ean,
                 "precio_unitario": precio_unitario,
                 "vida_util_cuenta_dias": vida_util_cuenta,
