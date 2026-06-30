@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 import streamlit as st
@@ -7,6 +7,7 @@ from src.editor_utils import apply_data_editor_state
 from src.movimientos import crear_pedido, eliminar_pedidos
 from src.queries import get_cuentas, get_next_pedido_number, get_productos_activos, get_pedidos_resumen, get_pedido_detalle
 from src.session import current_user_id
+from src.time_utils import local_today
 
 ITEM_COLUMNS = [
     "codigo_producto",
@@ -198,14 +199,14 @@ with tab_crear:
     with col2:
         cuenta_label = st.selectbox("Cuenta solicitante", cuenta_labels)
     with col3:
-        fecha_pedido = st.date_input("Fecha de pedido", value=date.today())
+        fecha_pedido = st.date_input("Fecha de pedido", value=local_today())
 
     selected_cuenta = cuentas.iloc[cuenta_labels.index(cuenta_label)]
     default_responsable = clean_text(selected_cuenta.get("responsable"))
 
     col4, col5 = st.columns([1.5, 2])
     with col4:
-        fecha_esperada = st.date_input("Fecha esperada de atención", value=date.today() + timedelta(days=1))
+        fecha_esperada = st.date_input("Fecha esperada de atención", value=local_today() + timedelta(days=1))
     with col5:
         solicitante = st.text_input("Solicitante", value=default_responsable)
 
@@ -286,9 +287,9 @@ with tab_visualizar:
     if "pedidos_vis_solo_hoy" not in st.session_state:
         st.session_state.pedidos_vis_solo_hoy = True
     if "pedidos_vis_fecha_inicio" not in st.session_state:
-        st.session_state.pedidos_vis_fecha_inicio = date.today()
+        st.session_state.pedidos_vis_fecha_inicio = local_today()
     if "pedidos_vis_fecha_fin" not in st.session_state:
-        st.session_state.pedidos_vis_fecha_fin = date.today()
+        st.session_state.pedidos_vis_fecha_fin = local_today()
     if "pedidos_vis_estado" not in st.session_state:
         st.session_state.pedidos_vis_estado = ""
 
@@ -323,6 +324,8 @@ with tab_visualizar:
         with colf5:
             consultar = st.form_submit_button("Consultar", use_container_width=True, type="primary")
 
+    st.caption(f"Fecha local operativa usada por el filtro de hoy: {local_today().strftime('%Y-%m-%d')}")
+
     if consultar:
         if not solo_hoy_input and fecha_fin_input < fecha_inicio_input:
             st.error("La fecha hasta no puede ser menor que la fecha desde.")
@@ -345,7 +348,7 @@ with tab_visualizar:
         st.stop()
 
     if pedidos.empty:
-        st.info("No hay pedidos para mostrar con los filtros seleccionados.")
+        st.info("No hay pedidos para mostrar con los filtros seleccionados. Si acabas de crear pedidos y no aparecen, desmarca Solo pedidos de hoy o amplía el rango Desde/Hasta para validar la fecha registrada.")
     else:
         st.caption("Selecciona uno o más pedidos para eliminarlos. Solo se eliminan pedidos en estado CREADO sin atención ni cancelación registrada.")
         edited = selectable_table(pedidos, "pedidos_visualizar_editor")
