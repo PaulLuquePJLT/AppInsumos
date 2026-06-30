@@ -115,6 +115,7 @@ def _clear_rf_session_state() -> None:
         "rf_transfer_producto_label",
         "rf_transfer_lote",
         "rf_transfer_destino",
+        "rf_transfer_destino_id",
         "rf_transfer_cantidad",
         "rf_stock_query",
         "rf_stock_ubicacion",
@@ -351,37 +352,88 @@ def render_login() -> None:
 
 def _set_page(page_name: str) -> None:
     st.session_state.rf_page = page_name
+    st.session_state.rf_collapse_sidebar = True
+
+
+def _toggle_group(group_key: str) -> None:
+    st.session_state[group_key] = not bool(st.session_state.get(group_key, False))
+
+
+def _render_auto_collapse_sidebar() -> None:
+    """Cierra el sidebar en móvil después de elegir una función."""
+    if not st.session_state.pop("rf_collapse_sidebar", False):
+        return
+
+    html = """
+    <script>
+    (function() {
+        function closeSidebar() {
+            const doc = window.parent.document;
+            const selectors = [
+                '[data-testid="stSidebarCollapseButton"] button',
+                '[data-testid="stSidebarCollapseButton"]',
+                'button[title="Close sidebar"]',
+                'button[aria-label="Close sidebar"]'
+            ];
+            for (const selector of selectors) {
+                const el = doc.querySelector(selector);
+                if (el) { el.click(); return; }
+            }
+            const buttons = Array.from(doc.querySelectorAll('button'));
+            const collapseButton = buttons.find(function(btn) {
+                const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
+                return label.includes('close sidebar') || label.includes('collapse') || label.includes('ocultar');
+            });
+            if (collapseButton) collapseButton.click();
+        }
+        setTimeout(closeSidebar, 80);
+        setTimeout(closeSidebar, 250);
+    })();
+    </script>
+    """
+    components.html(html, height=0, width=0)
 
 
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
-    with st.sidebar.expander("▣ MOVIMIENTOS", expanded=False):
-        if st.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
+    st.session_state.setdefault("rf_group_movimientos", False)
+    st.session_state.setdefault("rf_group_consultas", False)
+
+    if st.sidebar.button("▣ MOVIMIENTOS", use_container_width=True, key="rf_group_btn_movimientos"):
+        _toggle_group("rf_group_movimientos")
+        st.rerun()
+
+    if st.session_state.get("rf_group_movimientos"):
+        if st.sidebar.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
             _set_page("Ingresos")
             st.rerun()
-        if st.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
+        if st.sidebar.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
             _set_page("Picking")
             st.rerun()
-        if st.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
+        if st.sidebar.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
             _set_page("Transferencia")
             st.rerun()
 
-    with st.sidebar.expander("⌕ CONSULTAS", expanded=False):
-        if st.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
+    if st.sidebar.button("⌕ CONSULTAS", use_container_width=True, key="rf_group_btn_consultas"):
+        _toggle_group("rf_group_consultas")
+        st.rerun()
+
+    if st.session_state.get("rf_group_consultas"):
+        if st.sidebar.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
             _set_page("Stock")
             st.rerun()
 
     user = current_user()
     display_name = f"{user.get('nombres','')} {user.get('apellidos','')}".strip() or user.get("usuario_login", "")
     st.sidebar.markdown(
-        f'''
+        f"""
         <div class="rf-session-simple">
             <div class="rf-session-label">Sesión activa</div>
             <div class="rf-session-user">{display_name}</div>
             <div class="rf-session-role">Rol: {user.get('rol','')}</div>
         </div>
-        ''',
+        """,
         unsafe_allow_html=True,
     )
     if st.sidebar.button("Cerrar sesión", use_container_width=True, key="rf_logout"):
@@ -671,18 +723,27 @@ def _render_picking_tareas() -> None:
 
     tarea = tareas.iloc[0].to_dict()
     current = min(done + 1, total if total > 0 else 1)
-    st.markdown(f'<div class="rf-task-counter">Tarea {current}/{total}</div>', unsafe_allow_html=True)
 
     st.markdown(
         f"""
-        <div class="rf-task-main">
-            <div class="rf-task-big-label">Ubicación</div>
-            <div class="rf-task-big-value">{tarea.get('codigo_ubicacion')}</div>
+        <div class="rf-task-main rf-task-compact">
+            <div class="rf-task-header">
+                <div class="rf-task-pk">{st.session_state.get('rf_picking_nro', '')}</div>
+                <div class="rf-task-counter">Tarea {current}/{total}</div>
+            </div>
+            <div class="rf-task-row">
+                <div>
+                    <div class="rf-task-big-label">Ubicación</div>
+                    <div class="rf-task-big-value rf-location-value">{tarea.get('codigo_ubicacion')}</div>
+                </div>
+                <div>
+                    <div class="rf-task-big-label">Cantidad</div>
+                    <div class="rf-task-big-value rf-qty-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
+                </div>
+            </div>
             <div class="rf-task-big-label">Artículo</div>
-            <div class="rf-task-big-value" style="font-size:1.15rem;">{tarea.get('sku')}<br>{tarea.get('nombre_producto')}</div>
-            <div class="rf-task-big-label">Cantidad Picking</div>
-            <div class="rf-task-big-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
-            <div class="rf-grid">
+            <div class="rf-task-product">{tarea.get('sku')} · {tarea.get('nombre_producto')}</div>
+            <div class="rf-grid rf-grid-compact">
                 <div class="rf-field"><div class="rf-label">Zona</div><div class="rf-value">{tarea.get('codigo_zona')} - {tarea.get('nombre_zona')}</div></div>
                 <div class="rf-field"><div class="rf-label">Cuenta</div><div class="rf-value">{tarea.get('codigo_cuenta')}</div></div>
                 <div class="rf-field"><div class="rf-label">Solicitante</div><div class="rf-value">{tarea.get('solicitante') or '-'}</div></div>
@@ -760,6 +821,7 @@ def _clear_transfer_state() -> None:
         "rf_transfer_producto_label",
         "rf_transfer_lote",
         "rf_transfer_destino",
+        "rf_transfer_destino_id",
         "rf_transfer_cantidad",
         "rf_transfer_confirm",
     ]:
@@ -801,10 +863,10 @@ def render_transferencia() -> None:
 
     st.markdown(
         f"""
-        <div class="rf-card">
+        <div class="rf-card rf-card-compact">
             <div class="rf-kicker">Stock en ubicación</div>
             <div class="rf-product-title">{prod['sku']} - {prod['nombre_producto']}</div>
-            <div class="rf-grid">
+            <div class="rf-grid rf-grid-compact">
                 <div class="rf-field"><div class="rf-label">Ubicación</div><div class="rf-value">{origen}</div></div>
                 <div class="rf-field"><div class="rf-label">Disponible</div><div class="rf-value">{float(prod['cantidad_disponible']):,.2f} {prod['codigo_unidad']}</div></div>
             </div>
@@ -825,7 +887,11 @@ def render_transferencia() -> None:
         if lote:
             st.info(f"Lote: {lote}")
 
-    destino = st.selectbox("Ubicación destino", ubicacion_options, key="rf_transfer_destino")
+    destino = st.text_input(
+        "Ubicación destino",
+        key="rf_transfer_destino",
+        placeholder="Escanea o escribe ubicación destino",
+    ).strip().upper()
     cantidad = st.text_input("Cantidad", key="rf_transfer_cantidad", placeholder="Cantidad parcial o total")
 
     col1, col2 = st.columns(2)
@@ -834,12 +900,16 @@ def render_transferencia() -> None:
             qty = _parse_qty(cantidad)
             disponible = float(stock_lote["cantidad_disponible"] or 0)
             if not destino:
-                raise ValueError("Selecciona ubicación destino.")
-            if destino == origen:
+                raise ValueError("Ingresa ubicación destino.")
+            destino_row = ubicaciones[ubicaciones["codigo_ubicacion"].astype(str).str.upper() == destino]
+            if destino_row.empty:
+                raise ValueError("La ubicación destino no existe o está inactiva.")
+            if destino == str(origen).upper():
                 raise ValueError("La ubicación origen y destino no pueden ser iguales.")
             if qty > disponible:
                 raise ValueError("La cantidad supera el stock disponible del lote/ubicación.")
             st.session_state.rf_transfer_confirm = True
+            st.session_state.rf_transfer_destino_id = int(destino_row.iloc[0]["id_ubicacion"])
         except Exception as exc:
             st.error(str(exc))
 
@@ -847,16 +917,17 @@ def render_transferencia() -> None:
         _clear_transfer_state()
 
     if st.session_state.get("rf_transfer_confirm"):
-        _render_confirm_transfer_dialog(stock_lote, destino, cantidad)
+        _render_confirm_transfer_dialog(stock_lote, destino, cantidad, st.session_state.get("rf_transfer_destino_id"))
 
 
-def _render_confirm_transfer_dialog(stock_lote: pd.Series, destino: str, cantidad: str) -> None:
+def _render_confirm_transfer_dialog(stock_lote: pd.Series, destino: str, cantidad: str, id_destino: int | None) -> None:
     def _do_confirm():
-        id_destino = int(rf_get_ubicaciones_activas().loc[rf_get_ubicaciones_activas()["codigo_ubicacion"] == destino, "id_ubicacion"].iloc[0])
+        if not id_destino:
+            raise ValueError("No se pudo identificar la ubicación destino.")
         id_mov = confirmar_transferencia_rf(
             id_producto=int(stock_lote["id_producto"]),
             id_ubicacion_origen=int(stock_lote["id_ubicacion"]),
-            id_ubicacion_destino=id_destino,
+            id_ubicacion_destino=int(id_destino),
             cantidad=_parse_qty(cantidad),
             id_usuario=current_user_id(),
             lote=stock_lote.get("lote") or None,
@@ -937,6 +1008,7 @@ def _rf_main() -> None:
     apply_rf_theme(login=False)
     st.session_state.setdefault("rf_page", "Inicio")
     render_sidebar()
+    _render_auto_collapse_sidebar()
 
     page = st.session_state.rf_page
     if page == "Inicio":
