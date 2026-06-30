@@ -1,4 +1,3 @@
-from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -18,6 +17,7 @@ from src.queries import (
     get_pickings_resumen,
 )
 from src.session import current_user_id
+from src.time_utils import local_today
 
 st.title("📋 Picking")
 st.caption("Creación, visualización, eliminación y gestión de cortos de picking.")
@@ -52,15 +52,48 @@ def selectable_table(df: pd.DataFrame, key: str):
 tab_crear, tab_visualizar, tab_cortos = st.tabs(["Crear Picking", "Visualizar / eliminar", "Cortos"])
 
 with tab_crear:
-    col0, col1 = st.columns([1, 2])
-    with col0:
-        solo_hoy = st.checkbox("Mostrar pedidos creados hoy", value=True)
-    with col1:
-        texto_cabecera = st.text_input("Texto de cabecera del picking", placeholder="Opcional")
+    if "pick_pend_solo_hoy" not in st.session_state:
+        st.session_state.pick_pend_solo_hoy = True
+    if "pick_pend_fecha_inicio" not in st.session_state:
+        st.session_state.pick_pend_fecha_inicio = local_today()
+    if "pick_pend_fecha_fin" not in st.session_state:
+        st.session_state.pick_pend_fecha_fin = local_today()
+
+    with st.form("form_filtros_pedidos_picking"):
+        col0, col1, col2, col3, col4 = st.columns([1.2, 1, 1, 2, .85])
+        with col0:
+            solo_hoy = st.checkbox("Pedidos de hoy", value=st.session_state.pick_pend_solo_hoy)
+        with col1:
+            fecha_inicio = st.date_input("Desde", value=st.session_state.pick_pend_fecha_inicio, disabled=solo_hoy)
+        with col2:
+            fecha_fin = st.date_input("Hasta", value=st.session_state.pick_pend_fecha_fin, disabled=solo_hoy)
+        with col3:
+            texto_cabecera = st.text_input("Texto de cabecera del picking", placeholder="Opcional")
+        with col4:
+            consultar_pedidos = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+    if consultar_pedidos:
+        if not solo_hoy and fecha_fin < fecha_inicio:
+            st.error("La fecha fin no puede ser menor que la fecha inicio.")
+            st.stop()
+        st.session_state.pick_pend_solo_hoy = bool(solo_hoy)
+        st.session_state.pick_pend_fecha_inicio = fecha_inicio
+        st.session_state.pick_pend_fecha_fin = fecha_fin
+
+    st.caption(f"Fecha local operativa usada por Pedidos de hoy: {local_today().strftime('%Y-%m-%d')}")
 
     try:
-        pedidos = get_pedidos_resumen(solo_hoy=solo_hoy, solo_creados=True)
-        detalle = get_pedidos_pendientes_detalle(solo_hoy=solo_hoy)
+        pedidos = get_pedidos_resumen(
+            solo_hoy=st.session_state.pick_pend_solo_hoy,
+            solo_creados=True,
+            fecha_inicio=st.session_state.pick_pend_fecha_inicio,
+            fecha_fin=st.session_state.pick_pend_fecha_fin,
+        )
+        detalle = get_pedidos_pendientes_detalle(
+            solo_hoy=st.session_state.pick_pend_solo_hoy,
+            fecha_inicio=st.session_state.pick_pend_fecha_inicio,
+            fecha_fin=st.session_state.pick_pend_fecha_fin,
+        )
     except Exception as exc:
         st.error("No se pudo cargar pedidos pendientes. Ejecuta la migración 008 en Azure SQL.")
         st.exception(exc)
@@ -78,7 +111,7 @@ with tab_crear:
     st.subheader("Pedidos pendientes")
 
     if pedidos.empty:
-        st.info("No hay pedidos pendientes para crear picking.")
+        st.info("No hay pedidos pendientes para crear picking con los filtros seleccionados. Si acabas de crear pedidos y no aparecen, desmarca Pedidos de hoy o amplía el rango Desde/Hasta para revisar la fecha registrada.")
     else:
         table = pedidos[[
             "id_pedido",
@@ -132,9 +165,9 @@ with tab_crear:
 
 with tab_visualizar:
     if "pick_fecha_inicio" not in st.session_state:
-        st.session_state.pick_fecha_inicio = date.today()
+        st.session_state.pick_fecha_inicio = local_today()
     if "pick_fecha_fin" not in st.session_state:
-        st.session_state.pick_fecha_fin = date.today()
+        st.session_state.pick_fecha_fin = local_today()
     if "pick_estado" not in st.session_state:
         st.session_state.pick_estado = ""
 
