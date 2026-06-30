@@ -1,6 +1,4 @@
 import pandas as pd
-
-from src.time_utils import local_today
 from sqlalchemy import text
 from sqlalchemy.sql.elements import TextClause
 
@@ -66,6 +64,27 @@ def clean_text(value):
 
 def clean_upper(value):
     return clean_text(value).upper()
+
+
+def normalize_nullable_ean(value):
+    """Devuelve None cuando el EAN está vacío.
+
+    La restricción SQL CK_productos_ean_serie permite NULL o 13 dígitos,
+    pero NO permite cadena vacía ''. Por eso todo EAN vacío debe viajar
+    a Azure SQL como None/NULL.
+    """
+    value_text = clean_text(value)
+
+    if value_text == "" or value_text.lower() in {"nan", "none", "null"}:
+        return None
+
+    # Si Excel lo leyera como número decimal, normalizar 775...0 -> 775...
+    if value_text.endswith(".0"):
+        maybe_int = value_text[:-2]
+        if maybe_int.isdigit():
+            return maybe_int
+
+    return value_text
 
 
 def clean_float(value, default=0.0):
@@ -365,7 +384,7 @@ def insert_producto(
             "sku": clean_upper(sku),
             "nombre_producto": clean_text(nombre_producto),
             "descripcion": clean_text(descripcion),
-            "ean_serie": clean_text(ean_serie),
+            "ean_serie": normalize_nullable_ean(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
             "precio_unitario": clean_float(precio_unitario),
             "vida_util_cuenta_dias": int(clean_float(vida_util_cuenta_dias, 0)),
@@ -417,7 +436,7 @@ def update_producto(
             "sku": clean_upper(sku),
             "nombre_producto": clean_text(nombre_producto),
             "descripcion": clean_text(descripcion),
-            "ean_serie": clean_text(ean_serie),
+            "ean_serie": normalize_nullable_ean(ean_serie),
             "flag_aplica_ean": clean_upper(flag_aplica_ean) if clean_upper(flag_aplica_ean) == "SI" else "NO",
             "precio_unitario": clean_float(precio_unitario),
             "vida_util_cuenta_dias": int(clean_float(vida_util_cuenta_dias, 0)),
@@ -443,6 +462,14 @@ def delete_producto(id_producto):
 
 
 def bulk_insert_productos(rows: list[dict]):
+    normalized_rows = []
+
+    for row in rows:
+        row_copy = dict(row)
+        row_copy["ean_serie"] = normalize_nullable_ean(row_copy.get("ean_serie"))
+        row_copy["flag_aplica_ean"] = "SI" if clean_upper(row_copy.get("flag_aplica_ean")) == "SI" else "NO"
+        normalized_rows.append(row_copy)
+
     execute_many(
         """
         INSERT INTO productos
@@ -478,7 +505,7 @@ def bulk_insert_productos(rows: list[dict]):
                 1
             )
         """,
-        rows,
+        normalized_rows,
     )
 
 
@@ -1369,110 +1396,61 @@ def get_pedidos_resumen(
 ):
     """Consulta resumen de pedidos con filtros en SQL.
 
-    Esta version no depende de vw_pedidos_resumen para evitar que un view
-    desactualizado o con INNER JOIN oculte pedidos creados. Tambien usa la
-    fecha local operativa Lima/Bogota para que los pedidos creados desde
-    Streamlit Cloud no queden ocultos por diferencia UTC vs UTC-5.
+    - solo_hoy=True fuerza fecha_pedido = fecha local Bogotá/Lima.
+    - Si solo_hoy=False, usa fecha_inicio y fecha_fin cuando se informan.
+    - estado vacío o None equivale a todos.
     """
     where = []
     params = {}
 
     if solo_hoy:
-        where.append("CAST(p.fecha_pedido AS DATE) = :fecha_hoy")
-        params["fecha_hoy"] = local_today()
+        where.append("fecha_pedido = CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), '-05:00') AS DATE)")
     else:
         if fecha_inicio is not None:
-            where.append("CAST(p.fecha_pedido AS DATE) >= :fecha_inicio")
+            where.append("fecha_pedido >= :fecha_inicio")
             params["fecha_inicio"] = fecha_inicio
         if fecha_fin is not None:
-            where.append("CAST(p.fecha_pedido AS DATE) <= :fecha_fin")
+            where.append("fecha_pedido <= :fecha_fin")
             params["fecha_fin"] = fecha_fin
 
     if solo_creados:
-        where.append("p.estado = 'CREADO'")
+        where.append("estado = 'CREADO'")
     elif estado:
-        where.append("p.estado = :estado")
+        where.append("estado = :estado")
         params["estado"] = estado
 
     where_sql = "WHERE " + " AND ".join(where) if where else ""
 
     return read_dataframe(f"""
         SELECT
-            p.id_pedido,
-            p.nro_pedido,
-            CAST(p.fecha_pedido AS DATE) AS fecha_pedido,
-            p.fecha_esperada_atencion,
-            p.id_cuenta,
-            c.codigo_cuenta,
-            c.nombre_cuenta,
-            p.solicitante,
-            p.responsable_cuenta,
-            p.texto_cabecera,
-            CAST(ISNULL(p.qty_total, SUM(ISNULL(pd.cantidad_pedida, 0))) AS DECIMAL(18,2)) AS qty_total,
-            p.estado,
-            COUNT(pd.id_pedido_detalle) AS lineas,
-            CAST(SUM(
-                ISNULL(pd.cantidad_pedida, 0)
-                - ISNULL(pd.cantidad_asignada, 0)
-                - ISNULL(pd.cantidad_cancelada, 0)
-            ) AS DECIMAL(18,2)) AS cantidad_pendiente_picking,
-            CAST(SUM(
-                ISNULL(pd.cantidad_pedida, 0)
-                - ISNULL(pd.cantidad_atendida, 0)
-                - ISNULL(pd.cantidad_cancelada, 0)
-            ) AS DECIMAL(18,2)) AS cantidad_pendiente_atencion
-        FROM dbo.pedidos p
-        INNER JOIN dbo.cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
-        LEFT JOIN dbo.pedido_detalle pd ON pd.id_pedido = p.id_pedido
+            id_pedido,
+            nro_pedido,
+            fecha_pedido,
+            fecha_esperada_atencion,
+            id_cuenta,
+            codigo_cuenta,
+            nombre_cuenta,
+            solicitante,
+            responsable_cuenta,
+            texto_cabecera,
+            qty_total,
+            estado,
+            lineas,
+            cantidad_pendiente_picking,
+            cantidad_pendiente_atencion
+        FROM dbo.vw_pedidos_resumen
         {where_sql}
-        GROUP BY
-            p.id_pedido,
-            p.nro_pedido,
-            p.fecha_pedido,
-            p.fecha_esperada_atencion,
-            p.id_cuenta,
-            c.codigo_cuenta,
-            c.nombre_cuenta,
-            p.solicitante,
-            p.responsable_cuenta,
-            p.texto_cabecera,
-            p.qty_total,
-            p.estado
-        ORDER BY CAST(p.fecha_pedido AS DATE) DESC, p.nro_pedido DESC
+        ORDER BY fecha_pedido DESC, nro_pedido DESC
     """, params)
 
 
-def get_pedidos_pendientes_detalle(solo_hoy: bool = True, fecha_inicio=None, fecha_fin=None):
-    """Detalle pendiente para crear picking.
-
-    Usa fecha local Lima/Bogota para el filtro por defecto de hoy y permite
-    rango de fechas cuando solo_hoy=False.
-    """
-    where = [
-        "p.estado = 'CREADO'",
-        "pd.estado = 'PENDIENTE'",
-        "(ISNULL(pd.cantidad_pedida, 0) - ISNULL(pd.cantidad_asignada, 0) - ISNULL(pd.cantidad_cancelada, 0)) > 0",
-    ]
-    params = {}
-
-    if solo_hoy:
-        where.append("CAST(p.fecha_pedido AS DATE) = :fecha_hoy")
-        params["fecha_hoy"] = local_today()
-    else:
-        if fecha_inicio is not None:
-            where.append("CAST(p.fecha_pedido AS DATE) >= :fecha_inicio")
-            params["fecha_inicio"] = fecha_inicio
-        if fecha_fin is not None:
-            where.append("CAST(p.fecha_pedido AS DATE) <= :fecha_fin")
-            params["fecha_fin"] = fecha_fin
-
-    where_sql = "WHERE " + " AND ".join(where)
-
+def get_pedidos_pendientes_detalle(solo_hoy: bool = True):
+    date_filter = "AND p.fecha_pedido = CAST(SYSDATETIME() AS DATE)" if solo_hoy else ""
     return read_dataframe(f"""
         SELECT
             p.id_pedido,
             p.nro_pedido,
-            CAST(p.fecha_pedido AS DATE) AS fecha_pedido,
+            p.fecha_pedido,
             p.fecha_esperada_atencion,
             p.estado AS estado_pedido,
             c.id_cuenta,
@@ -1492,13 +1470,17 @@ def get_pedidos_pendientes_detalle(solo_hoy: bool = True, fecha_inicio=None, fec
             CAST(pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada AS DECIMAL(18,2)) AS cantidad_pendiente_picking,
             pd.texto_item,
             pd.estado AS estado_detalle
-        FROM dbo.pedidos p
-        INNER JOIN dbo.pedido_detalle pd ON pd.id_pedido = p.id_pedido
-        INNER JOIN dbo.productos pr ON pr.id_producto = pd.id_producto
-        INNER JOIN dbo.cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
-        {where_sql}
-        ORDER BY CAST(p.fecha_pedido AS DATE) DESC, p.nro_pedido, pd.nro_linea
-    """, params)
+        FROM pedidos p
+        INNER JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
+        INNER JOIN productos pr ON pr.id_producto = pd.id_producto
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
+        WHERE p.estado = 'CREADO'
+          AND pd.estado = 'PENDIENTE'
+          AND (pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada) > 0
+          {date_filter}
+        ORDER BY p.fecha_pedido DESC, p.nro_pedido, pd.nro_linea
+    """)
+
 
 def get_pedido_detalle(id_pedido: int):
     return read_dataframe(
