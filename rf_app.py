@@ -4,8 +4,6 @@ from datetime import date
 import time
 from typing import Any
 
-import streamlit.components.v1 as components
-
 import pandas as pd
 import streamlit as st
 
@@ -166,88 +164,12 @@ def _enforce_rf_idle_timeout() -> bool:
 
 
 def _render_rf_idle_timeout_script(timeout_seconds: int = RF_IDLE_TIMEOUT_SECONDS) -> None:
-    """Watchdog en navegador para cerrar sesión incluso si el equipo queda en segundo plano.
+    """Deshabilitado para máxima respuesta al touch.
 
-    Optimización: se inyecta una sola vez por sesión RF. Antes se insertaba
-    en cada rerun y acumulaba listeners en el navegador, lo que podía hacer
-    más lenta la respuesta al tocar funciones del menú.
+    Se mantiene el timeout de servidor en cada rerun, pero no se agregan
+    listeners JavaScript sobre touch/click/scroll.
     """
-    if st.session_state.get("_rf_idle_watchdog_loaded"):
-        return
-    st.session_state["_rf_idle_watchdog_loaded"] = True
-
-    timeout_ms = int(timeout_seconds * 1000)
-    html = """
-    <script>
-    (function() {
-        const timeoutMs = __TIMEOUT_MS__;
-        const storageKey = "rf_wms_last_activity";
-        let timer = null;
-
-        function parentWindow() {
-            return window.parent || window;
-        }
-
-        function markActivity() {
-            try {
-                parentWindow().localStorage.setItem(storageKey, String(Date.now()));
-            } catch (e) {}
-            scheduleCheck();
-        }
-
-        function elapsedMs() {
-            try {
-                const last = Number(parentWindow().localStorage.getItem(storageKey) || Date.now());
-                return Date.now() - last;
-            } catch (e) {
-                return 0;
-            }
-        }
-
-        function triggerTimeout() {
-            try {
-                const url = new URL(parentWindow().location.href);
-                url.searchParams.set("rf_timeout", "1");
-                parentWindow().location.href = url.toString();
-            } catch (e) {
-                parentWindow().location.href = parentWindow().location.href.split("?")[0] + "?rf_timeout=1";
-            }
-        }
-
-        function checkTimeout() {
-            if (elapsedMs() >= timeoutMs) {
-                triggerTimeout();
-                return;
-            }
-            scheduleCheck();
-        }
-
-        function scheduleCheck() {
-            if (timer) clearTimeout(timer);
-            const remaining = Math.max(1000, timeoutMs - elapsedMs());
-            timer = setTimeout(checkTimeout, remaining);
-        }
-
-        const events = ["click", "keydown", "mousemove", "touchstart", "scroll", "wheel"];
-        events.forEach(function(evt) {
-            try {
-                parentWindow().document.addEventListener(evt, markActivity, {passive: true});
-            } catch (e) {}
-        });
-
-        try {
-            parentWindow().document.addEventListener("visibilitychange", function() {
-                if (!parentWindow().document.hidden && elapsedMs() >= timeoutMs) {
-                    triggerTimeout();
-                }
-            });
-        } catch (e) {}
-
-        markActivity();
-    })();
-    </script>
-    """.replace("__TIMEOUT_MS__", str(timeout_ms))
-    components.html(html, height=0, width=0)
+    return None
 
 
 def _login_brand() -> None:
@@ -360,74 +282,17 @@ def render_login() -> None:
             st.rerun()
 
 def _set_page(page_name: str) -> None:
-    # Callback liviano: solo cambia estado. No llama st.rerun(), porque
-    # st.button ya provoca un rerun automáticamente. Evita doble rerun.
+    """Callback mínimo para navegación RF.
+
+    Solo actualiza el nombre de página. No dispara st.rerun(), no ejecuta
+    JavaScript y no intenta cerrar el sidebar, para que el touch responda lo
+    más rápido posible.
+    """
     st.session_state.rf_page = page_name
-    st.session_state.rf_collapse_sidebar = True
 
 
 def _toggle_group(group_key: str) -> None:
     st.session_state[group_key] = not bool(st.session_state.get(group_key, False))
-
-
-def _render_auto_collapse_sidebar() -> None:
-    """Cierra el sidebar en móvil después de elegir una función.
-
-    Optimizado para no dejar un intervalo largo corriendo. Antes hacía hasta 18
-    intentos cada 120 ms; ahora hace pocos intentos rápidos y termina.
-    """
-    if not st.session_state.pop("rf_collapse_sidebar", False):
-        return
-
-    html = """
-    <script>
-    (function() {
-        const parentDoc = window.parent.document;
-        function closeSidebarAttempt() {
-            const candidates = [];
-            const selectors = [
-                '[data-testid="stSidebarCollapseButton"] button',
-                '[data-testid="stSidebarCollapseButton"]',
-                'button[title="Close sidebar"]',
-                'button[aria-label="Close sidebar"]',
-                'button[aria-label="Collapse sidebar"]',
-                'button[title="Collapse sidebar"]'
-            ];
-            selectors.forEach(function(selector) {
-                parentDoc.querySelectorAll(selector).forEach(function(el) { candidates.push(el); });
-            });
-            Array.from(parentDoc.querySelectorAll('button')).forEach(function(btn) {
-                const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
-                const text = (btn.innerText || '').trim();
-                if (
-                    label.includes('close sidebar') ||
-                    label.includes('collapse') ||
-                    label.includes('ocultar') ||
-                    label.includes('cerrar') ||
-                    text.includes('«') ||
-                    text.includes('‹') ||
-                    text.includes('<<')
-                ) {
-                    candidates.push(btn);
-                }
-            });
-            for (const el of candidates) {
-                try {
-                    if (el && el.offsetParent !== null) {
-                        el.click();
-                        return true;
-                    }
-                } catch (e) {}
-            }
-            return false;
-        }
-        [20, 90, 180, 300, 450].forEach(function(delay) {
-            setTimeout(closeSidebarAttempt, delay);
-        });
-    })();
-    </script>
-    """
-    components.html(html, height=0, width=0)
 
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
@@ -1050,12 +915,11 @@ def _rf_main() -> None:
     if _enforce_rf_idle_timeout():
         st.rerun()
 
-    _render_rf_idle_timeout_script(RF_IDLE_TIMEOUT_SECONDS)
+    # Sin watchdog JS: evita listeners extra en cada touch.
 
     apply_rf_theme(login=False)
     st.session_state.setdefault("rf_page", "Inicio")
     render_sidebar()
-    _render_auto_collapse_sidebar()
 
     page = st.session_state.rf_page
     if page == "Inicio":
