@@ -505,9 +505,6 @@ def _provider_selectbox() -> tuple[pd.DataFrame, int | None]:
 
 def render_ingresos() -> None:
     _init_ingreso_state()
-    st.title("Ingresos RF")
-    st.caption("Recepción móvil por SKU o EAN")
-
     tab_header, tab_add, tab_detail = st.tabs(["Datos Cabecera", "Agregar Detalle", "Detalle"])
 
     with tab_header:
@@ -681,9 +678,6 @@ def _back_to_picking_list() -> None:
 
 
 def render_picking() -> None:
-    st.title("Picking RF")
-    st.caption("Atención secuencial de tareas liberadas")
-
     mode = st.session_state.get("rf_picking_mode", "lista")
     if mode == "tareas" and st.session_state.get("rf_picking_id"):
         _render_picking_tareas()
@@ -843,9 +837,6 @@ def _clear_transfer_state() -> None:
 
 
 def render_transferencia() -> None:
-    st.title("Transferencia RF")
-    st.caption("Movimiento interno por ubicación y código")
-
     ubicaciones = rf_get_ubicaciones_activas()
     if ubicaciones.empty:
         st.error("No hay ubicaciones activas.")
@@ -987,8 +978,6 @@ def _render_confirm_transfer_dialog(stock_lote: pd.Series, destino: str, cantida
 
 
 def render_stock() -> None:
-    st.title("Stock RF")
-    st.caption("Consulta rápida por SKU, EAN, descripción o ubicación")
     code = st.text_input("Escanear o buscar", placeholder="SKU / EAN / descripción")
     ubicacion = st.text_input("Ubicación", placeholder="Código de ubicación opcional")
     if st.button("Consultar", type="primary", use_container_width=True):
