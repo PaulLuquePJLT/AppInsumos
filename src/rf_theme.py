@@ -1434,7 +1434,7 @@ def apply_rf_theme(login: bool = False) -> None:
         section[data-testid="stSidebar"] .stButton > button p,
         section[data-testid="stSidebar"] .stButton > button div,
         section[data-testid="stSidebar"] .stButton > button span {{
-            font-size: .100rem !important;
+            font-size: .15rem !important;
             line-height: 1.05 !important;
             white-space: nowrap !important;
             overflow: visible !important;
