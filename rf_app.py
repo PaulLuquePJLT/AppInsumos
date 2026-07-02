@@ -1,1054 +1,1377 @@
 from __future__ import annotations
 
-from datetime import date
-import time
-from typing import Any
+import base64
+from pathlib import Path
 
-import streamlit.components.v1 as components
-
-import pandas as pd
 import streamlit as st
 
-from src.auth import authenticate_user, request_password_reset, reset_password_with_code
 
-try:
-    from src.db import reset_engine_pool
-except Exception:  # compatibilidad si src.db no tiene esta función
-    def reset_engine_pool() -> None:
-        return None
-from src.rf_movimientos import (
-    confirmar_ingreso_rf,
-    confirmar_tarea_picking_rf,
-    confirmar_transferencia_rf,
-)
-from src.rf_queries import (
-    rf_clear_master_cache,
-    rf_find_product_by_code,
-    rf_get_auditoria_picking,
-    rf_get_pickings_pendientes,
-    rf_get_proveedores,
-    rf_get_stage_recepcion,
-    rf_get_stock_consulta,
-    rf_get_stock_por_ubicacion,
-    rf_get_tareas_picking,
-    rf_get_ubicaciones_activas,
-)
-from src.rf_theme import apply_rf_theme, load_rf_icon, logo_img, render_rf_logo_sidebar, render_rf_product_card
-from src.session import (
-    clear_auth_session,
-    current_user,
-    current_user_id,
-)
+RF_COLORS = {
+    "navy": "#142534",
+    "navy_2": "#103541",
+    "teal_dark": "#0E5663",
+    "teal": "#18A999",
+    "teal_soft": "#DDF7F3",
+    "gold": "#F2C94C",
+    "bg": "#F4FAFA",
+    "surface": "#FFFFFF",
+    "muted": "#6B7A86",
+    "border": "#DCE7EA",
+    "danger": "#D64545",
+}
 
 
-st.set_page_config(
-    page_title="RF WMS Block B",
-    page_icon=load_rf_icon(),
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+def _logo_path() -> Path | None:
+    for file_name in ["logo.png", "logo.webp", "logo.jpg", "logo.jpeg"]:
+        candidate = Path("assets") / file_name
+        if candidate.exists():
+            return candidate
+    return None
 
 
-ALLOWED_ROLES = {"operario", "administrador", "admin"}
-RF_IDLE_TIMEOUT_SECONDS = 180
+@st.cache_data(show_spinner=False)
+def logo_base64() -> str:
+    path = _logo_path()
+    if not path:
+        return ""
+    return base64.b64encode(path.read_bytes()).decode("utf-8")
 
 
-def _normalize_role(value: str | None) -> str:
-    return str(value or "").strip().lower()
+def load_rf_icon():
+    path = _logo_path()
+    if not path:
+        return "📦"
+    try:
+        from PIL import Image
+
+        return Image.open(path)
+    except Exception:
+        return str(path)
 
 
-def _parse_qty(value: Any) -> float:
-    text = str(value or "").strip().replace(",", ".")
-    if text == "":
-        raise ValueError("La cantidad es obligatoria.")
-    qty = float(text)
-    if qty <= 0:
-        raise ValueError("La cantidad debe ser mayor a cero.")
-    return qty
+def logo_img(width: int = 72) -> str:
+    encoded = logo_base64()
+    if not encoded:
+        return ""
+    return f'<img src="data:image/png;base64,{encoded}" style="width:{width}px;height:auto;display:block;" />'
 
 
-def _init_auth_state() -> None:
-    st.session_state.setdefault("rf_authenticated", False)
-    st.session_state.setdefault("rf_auth_user", None)
-    st.session_state.setdefault("rf_auth_mode", "login")
-    st.session_state.setdefault("rf_reset_identifier", "")
-
-
-def _set_auth_user(user: dict) -> None:
-    st.session_state.rf_authenticated = True
-    st.session_state.rf_auth_user = user
-    st.session_state.authenticated = True
-    st.session_state.auth_user = user
-    st.session_state.rf_last_activity_ts = time.time()
-
-
-def _clear_rf_session_state() -> None:
-    """Limpia la sesión RF sin forzar rerun.
-
-    Se usa tanto para cierre manual como para cierre automático por inactividad.
+def rf_background_uri() -> str:
+    svg = """
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 1600'>
+      <defs>
+        <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+          <stop offset='0' stop-color='#eaf8f6'/>
+          <stop offset='.55' stop-color='#f8fcfc'/>
+          <stop offset='1' stop-color='#eef7f6'/>
+        </linearGradient>
+        <linearGradient id='rack' x1='0' y1='0' x2='0' y2='1'>
+          <stop offset='0' stop-color='#0e5663' stop-opacity='.22'/>
+          <stop offset='1' stop-color='#142534' stop-opacity='.06'/>
+        </linearGradient>
+      </defs>
+      <rect width='900' height='1600' fill='url(#bg)'/>
+      <circle cx='780' cy='180' r='210' fill='#18A999' opacity='.10'/>
+      <circle cx='110' cy='1380' r='260' fill='#F2C94C' opacity='.09'/>
+      <g opacity='.65'>
+        <path d='M70 980 L430 830 L430 1250 L70 1370 Z' fill='url(#rack)'/>
+        <path d='M510 360 L850 240 L850 760 L510 860 Z' fill='url(#rack)'/>
+        <path d='M115 1010 L400 890' stroke='#0E5663' stroke-opacity='.15' stroke-width='9'/>
+        <path d='M115 1090 L400 970' stroke='#0E5663' stroke-opacity='.12' stroke-width='8'/>
+        <path d='M115 1170 L400 1050' stroke='#0E5663' stroke-opacity='.09' stroke-width='8'/>
+        <path d='M560 400 L825 300' stroke='#0E5663' stroke-opacity='.15' stroke-width='9'/>
+        <path d='M560 490 L825 390' stroke='#0E5663' stroke-opacity='.12' stroke-width='8'/>
+        <path d='M560 580 L825 480' stroke='#0E5663' stroke-opacity='.09' stroke-width='8'/>
+      </g>
+    </svg>
     """
-    for key in [
-        "rf_authenticated",
-        "rf_auth_user",
-        "rf_auth_mode",
-        "rf_reset_identifier",
-        "rf_page",
-        "rf_ingreso_detalles",
-        "rf_scan_codigo",
-        "rf_lote",
-        "rf_cantidad",
-        "rf_texto_item",
-        "rf_confirm_ingreso",
-        "rf_header_id_proveedor",
-        "rf_header_proveedor",
-        "rf_header_fecha",
-        "rf_header_documento",
-        "rf_header_texto",
-        "rf_picking_id",
-        "rf_picking_nro",
-        "rf_picking_mode",
-        "rf_picking_total",
-        "rf_picking_done_session",
-        "rf_cancel_picking_process",
-        "rf_transfer_confirm",
-        "rf_transfer_origen",
-        "rf_transfer_producto_label",
-        "rf_transfer_lote",
-        "rf_transfer_destino",
-        "rf_transfer_destino_id",
-        "rf_transfer_cantidad",
-        "rf_stock_query",
-        "rf_stock_ubicacion",
-        "rf_last_activity_ts",
-    ]:
-        if key in st.session_state:
-            del st.session_state[key]
-    clear_auth_session()
-    try:
-        reset_engine_pool()
-    except Exception:
-        pass
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("utf-8")
+    return f"data:image/svg+xml;base64,{encoded}"
 
 
-def _logout() -> None:
-    _clear_rf_session_state()
-    st.rerun()
-
-
-def _handle_timeout_query_param() -> None:
-    """Cierra la sesión RF cuando el watchdog del navegador agrega ?wms_timeout=1."""
-    try:
-        if st.query_params.get("wms_timeout") or st.query_params.get("rf_timeout"):
-            _clear_rf_session_state()
-            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
-            st.query_params.clear()
-            st.rerun()
-    except Exception:
-        pass
-
-
-def _enforce_rf_idle_timeout() -> bool:
-    """Valida inactividad en backend durante cada rerun de Streamlit."""
-    if not st.session_state.get("rf_authenticated"):
-        return False
-
-    now = time.time()
-    last_activity = float(st.session_state.get("rf_last_activity_ts") or now)
-
-    if now - last_activity > RF_IDLE_TIMEOUT_SECONDS:
-        _clear_rf_session_state()
-        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
-        return True
-
-    st.session_state.rf_last_activity_ts = now
-    return False
-
-
-def _render_rf_idle_timeout_script(timeout_seconds: int = RF_IDLE_TIMEOUT_SECONDS) -> None:
-    """Watchdog en navegador para cerrar sesión incluso si el equipo queda en segundo plano."""
-    timeout_ms = int(timeout_seconds * 1000)
-    html = """
-    <script>
-    (function() {
-        const timeoutMs = __TIMEOUT_MS__;
-        const storageKey = "rf_wms_last_activity";
-        let timer = null;
-
-        function parentWindow() {
-            return window.parent || window;
+def apply_rf_theme(login: bool = False) -> None:
+    bg = rf_background_uri()
+    sidebar_css = "" if not login else """
+        section[data-testid="stSidebar"],
+        div[data-testid="stSidebar"],
+        [data-testid="stSidebarCollapsedControl"] {
+            display:none !important;
+            visibility:hidden !important;
+            width:0 !important;
+            min-width:0 !important;
+        }
+    """
+    login_form_css = """
+        /* Login RF: tarjeta única, compacta y centrada horizontalmente. */
+        .block-container {
+            width: min(92vw, 400px) !important;
+            max-width: 400px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: .75rem !important;
+            padding-right: .75rem !important;
         }
 
-        function markActivity() {
-            try {
-                parentWindow().localStorage.setItem(storageKey, String(Date.now()));
-            } catch (e) {}
-            scheduleCheck();
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            width: min(88vw, 380px) !important;
+            max-width: 380px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            background: rgba(255,255,255,.92) !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            border-radius: 28px !important;
+            box-shadow: 0 28px 72px rgba(20,37,52,.18) !important;
+            padding: 1.35rem 1.15rem 1.18rem 1.15rem !important;
+            backdrop-filter: blur(16px) !important;
         }
 
-        function elapsedMs() {
-            try {
-                const last = Number(parentWindow().localStorage.getItem(storageKey) || Date.now());
-                return Date.now() - last;
-            } catch (e) {
-                return 0;
-            }
+        div[data-testid="stVerticalBlockBorderWrapper"] > div {
+            background: transparent !important;
+            border: 0 !important;
+            padding: 0 !important;
         }
 
-        function triggerTimeout() {
-            try {
-                const url = new URL(parentWindow().location.href);
-                url.searchParams.set("rf_timeout", "1");
-                parentWindow().location.href = url.toString();
-            } catch (e) {
-                parentWindow().location.href = parentWindow().location.href.split("?")[0] + "?rf_timeout=1";
-            }
+        div[data-testid="stForm"] {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            padding: 0 !important;
         }
-
-        function checkTimeout() {
-            if (elapsedMs() >= timeoutMs) {
-                triggerTimeout();
-                return;
-            }
-            scheduleCheck();
+    """ if login else """
+        div[data-testid="stForm"] {
+            border: 0 !important;
+            background: transparent !important;
         }
-
-        function scheduleCheck() {
-            if (timer) clearTimeout(timer);
-            const remaining = Math.max(1000, timeoutMs - elapsedMs());
-            timer = setTimeout(checkTimeout, remaining);
-        }
-
-        const events = ["click", "keydown", "mousemove", "touchstart", "scroll", "wheel"];
-        events.forEach(function(evt) {
-            try {
-                parentWindow().document.addEventListener(evt, markActivity, {passive: true});
-            } catch (e) {}
-        });
-
-        try {
-            parentWindow().document.addEventListener("visibilitychange", function() {
-                if (!parentWindow().document.hidden && elapsedMs() >= timeoutMs) {
-                    triggerTimeout();
-                }
-            });
-        } catch (e) {}
-
-        markActivity();
-    })();
-    </script>
-    """.replace("__TIMEOUT_MS__", str(timeout_ms))
-    components.html(html, height=0, width=0)
-
-
-def _login_brand() -> None:
+    """
     st.markdown(
         f"""
-        <div class="rf-login-brand">
-            <div>{logo_img(96)}</div>
-            <div class="rf-login-title">RF WMS Block B</div>
-            <div class="rf-login-subtitle">Recepción, picking y movimientos operativos</div>
-        </div>
+        <style>
+        :root {{
+            --rf-navy: {RF_COLORS['navy']};
+            --rf-navy-2: {RF_COLORS['navy_2']};
+            --rf-teal-dark: {RF_COLORS['teal_dark']};
+            --rf-teal: {RF_COLORS['teal']};
+            --rf-teal-soft: {RF_COLORS['teal_soft']};
+            --rf-gold: {RF_COLORS['gold']};
+            --rf-bg: {RF_COLORS['bg']};
+            --rf-surface: {RF_COLORS['surface']};
+            --rf-muted: {RF_COLORS['muted']};
+            --rf-border: {RF_COLORS['border']};
+            --rf-danger: {RF_COLORS['danger']};
+        }}
+
+        html, body, [data-testid="stAppViewContainer"] {{
+            background: url("{bg}") center center / cover no-repeat fixed !important;
+            color: var(--rf-navy);
+        }}
+
+        header[data-testid="stHeader"] {{
+            background: rgba(255,255,255,.78) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(220,231,234,.78);
+            min-height: 3.45rem;
+        }}
+
+        .block-container {{
+            padding-top: 4.65rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            padding-bottom: 2.5rem !important;
+            max-width: 720px !important;
+        }}
+
+        h1, h2, h3 {{
+            color: var(--rf-navy) !important;
+            letter-spacing: -0.035em;
+        }}
+
+        .rf-login-brand {{
+            display:flex;
+            flex-direction: column;
+            align-items:center;
+            margin-bottom: 1rem;
+            text-align:center;
+        }}
+
+        .rf-login-title {{
+            color: var(--rf-navy);
+            font-size: 1.85rem;
+            line-height: 1.05;
+            font-weight: 900;
+            margin-top: .65rem;
+        }}
+
+        .rf-login-subtitle {{
+            color: var(--rf-muted);
+            font-size: .92rem;
+            line-height: 1.35;
+            margin-top: .45rem;
+        }}
+
+        {login_form_css}
+
+        .stTextInput input,
+        .stNumberInput input,
+        .stTextArea textarea,
+        .stSelectbox [data-baseweb="select"] > div {{
+            border-radius: 14px !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            background: rgba(248,251,252,.98) !important;
+            min-height: 2.85rem;
+        }}
+
+        .stButton > button,
+        .stFormSubmitButton > button,
+        .stDownloadButton > button {{
+            border-radius: 14px !important;
+            font-weight: 820 !important;
+            min-height: 3rem;
+            border: 1px solid rgba(14,86,99,.18) !important;
+        }}
+
+        button[kind="primary"], .stButton > button[kind="primary"] {{
+            background: linear-gradient(135deg, var(--rf-teal-dark), var(--rf-teal)) !important;
+            color: white !important;
+        }}
+
+        .rf-card {{
+            background: rgba(255,255,255,.93);
+            border: 1px solid rgba(220,231,234,.92);
+            border-radius: 22px;
+            padding: 1rem;
+            box-shadow: 0 18px 38px rgba(15,74,85,.10);
+            margin-bottom: 1rem;
+        }}
+
+        .rf-product-ok {{ border-left: 6px solid var(--rf-teal); }}
+        .rf-product-error {{ border-left: 6px solid var(--rf-danger); }}
+
+        .rf-kicker {{
+            color: var(--rf-teal-dark);
+            font-weight: 850;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            font-size: .76rem;
+        }}
+
+        .rf-product-title {{
+            color: var(--rf-navy);
+            font-weight: 900;
+            font-size: 1.08rem;
+            line-height: 1.18;
+            margin: .25rem 0 .55rem 0;
+        }}
+
+        .rf-grid {{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: .65rem;
+        }}
+
+        .rf-field {{
+            background: rgba(221,247,243,.55);
+            border-radius: 14px;
+            padding: .58rem .65rem;
+        }}
+
+        .rf-label {{
+            color: var(--rf-muted);
+            font-size: .72rem;
+            font-weight: 750;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }}
+
+        .rf-value {{
+            color: var(--rf-navy);
+            font-size: .95rem;
+            font-weight: 850;
+            margin-top: .12rem;
+        }}
+
+        .rf-task-counter {{
+            text-align:right;
+            color: var(--rf-teal-dark);
+            font-weight:900;
+            letter-spacing:.02em;
+            margin-top:-.5rem;
+            margin-bottom:.5rem;
+        }}
+
+        .rf-task-main {{
+            background: rgba(255,255,255,.94);
+            border-radius: 24px;
+            border: 1px solid rgba(220,231,234,.95);
+            box-shadow: 0 20px 44px rgba(15,74,85,.12);
+            padding: 1.05rem;
+            margin-bottom: 1rem;
+        }}
+
+        .rf-task-big-label {{
+            color: var(--rf-muted);
+            text-transform: uppercase;
+            font-size: .70rem;
+            font-weight: 850;
+            letter-spacing: .06em;
+        }}
+
+        .rf-task-big-value {{
+            color: var(--rf-navy);
+            font-size: 1.65rem;
+            font-weight: 950;
+            line-height: 1.05;
+            margin-bottom: .65rem;
+        }}
+
+        .rf-picking-card {{
+            background: rgba(255,255,255,.92);
+            border: 1px solid rgba(220,231,234,.92);
+            border-left: 6px solid var(--rf-teal);
+            border-radius: 22px;
+            padding: .95rem;
+            box-shadow: 0 16px 36px rgba(15,74,85,.10);
+            margin-bottom: .85rem;
+        }}
+
+        .rf-picking-title {{
+            color: var(--rf-navy);
+            font-size: 1.25rem;
+            font-weight: 950;
+            margin-bottom: .2rem;
+        }}
+
+        .rf-picking-sub {{
+            color: var(--rf-muted);
+            font-size: .84rem;
+            font-weight: 650;
+            line-height: 1.35;
+        }}
+
+        .rf-pill-row {{
+            display:flex;
+            flex-wrap:wrap;
+            gap:.35rem;
+            margin-top:.75rem;
+        }}
+
+        .rf-pill {{
+            background: rgba(24,169,153,.12);
+            color: var(--rf-teal-dark);
+            border: 1px solid rgba(24,169,153,.16);
+            border-radius: 999px;
+            padding: .30rem .55rem;
+            font-size: .75rem;
+            font-weight: 850;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 310px) !important;
+            min-width: min(58vw, 310px) !important;
+            max-width: min(58vw, 310px) !important;
+            background: linear-gradient(180deg, #0D3140 0%, #123F4B 45%, #1C6570 100%) !important;
+        }}
+
+        section[data-testid="stSidebar"] * {{
+            color: rgba(255,255,255,.92) !important;
+        }}
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+            padding: .75rem .65rem .85rem .65rem !important;
+        }}
+
+        .rf-sidebar-logo {{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding: .45rem .15rem .70rem .15rem !important;
+            margin-bottom: .10rem !important;
+        }}
+
+        section[data-testid="stSidebar"] details,
+        section[data-testid="stSidebar"] details[open] {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            margin: .12rem 0 .20rem 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            padding: .12rem .05rem .10rem .05rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            color: rgba(221,247,243,.90) !important;
+            font-size: .72rem !important;
+            font-weight: 900 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary:hover {{
+            background: transparent !important;
+            color: #FFFFFF !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary * {{
+            color: rgba(221,247,243,.90) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton {{ margin: 0 !important; }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            padding: .12rem .35rem .12rem .95rem !important;
+            margin: .01rem 0 !important;
+            border-radius: 6px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: rgba(255,255,255,.90) !important;
+            font-size: .86rem !important;
+            font-weight: 690 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button:hover {{
+            background: rgba(255,255,255,.08) !important;
+            color: #FFFFFF !important;
+            transform: none !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] button[kind="primary"] {{
+            background: rgba(24,169,153,.20) !important;
+            border-left: 3px solid var(--rf-gold) !important;
+            color: #FFFFFF !important;
+            font-weight: 820 !important;
+        }}
+
+        .rf-session-simple {{
+            margin: .85rem .15rem 0 .15rem !important;
+            padding-top: .50rem !important;
+            border-top: 1px solid rgba(255,255,255,.12) !important;
+        }}
+
+        .rf-session-label {{
+            color: rgba(221,247,243,.62) !important;
+            font-size: .65rem !important;
+            font-weight: 850 !important;
+            text-transform: uppercase !important;
+            letter-spacing: .075em !important;
+        }}
+
+        .rf-session-user {{
+            color: rgba(255,255,255,.94) !important;
+            font-size: .86rem !important;
+            font-weight: 780 !important;
+            line-height: 1.18 !important;
+            margin-top: .18rem !important;
+        }}
+
+        .rf-session-role {{
+            color: rgba(221,247,243,.68) !important;
+            font-size: .72rem !important;
+            margin-top: .10rem !important;
+        }}
+
+        [data-testid="stDataFrame"] {{
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--rf-border);
+            background:white;
+        }}
+
+        .rf-home-hero {{
+            min-height: calc(100vh - 7rem);
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            text-align:center;
+            padding: 1.25rem;
+            border-radius: 30px;
+            background:
+                radial-gradient(circle at 50% 20%, rgba(255,255,255,.92), rgba(255,255,255,.62) 42%, rgba(221,247,243,.38) 100%);
+            border: 1px solid rgba(220,231,234,.55);
+            box-shadow: 0 28px 72px rgba(20,37,52,.12);
+            backdrop-filter: blur(10px);
+        }}
+
+        .rf-home-logo {{
+            width: 150px;
+            height: 150px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 22px 30px rgba(14,86,99,.20));
+        }}
+
+        .rf-home-title {{
+            color: var(--rf-navy);
+            font-size: clamp(2rem, 8vw, 3rem);
+            line-height: 1.02;
+            font-weight: 950;
+            letter-spacing: -.06em;
+        }}
+
+        .rf-home-subtitle {{
+            color: var(--rf-muted);
+            font-size: 1rem;
+            font-weight: 700;
+            margin-top: .55rem;
+            margin-bottom: 1.2rem;
+        }}
+
+        .rf-home-grid {{
+            display:flex;
+            flex-wrap:wrap;
+            justify-content:center;
+            gap:.55rem;
+            margin: .35rem auto 1.05rem auto;
+            max-width: 420px;
+        }}
+
+        .rf-home-chip {{
+            background: rgba(24,169,153,.12);
+            border: 1px solid rgba(24,169,153,.18);
+            color: var(--rf-teal-dark);
+            font-weight: 850;
+            border-radius: 999px;
+            padding: .48rem .8rem;
+            font-size: .86rem;
+        }}
+
+        .rf-home-help {{
+            color: var(--rf-muted);
+            font-weight: 650;
+            max-width: 360px;
+            line-height: 1.45;
+        }}
+
+
+        /* RF compact mode: hide invisible components, compact widgets and align menu. */
+        div[data-testid="stIFrame"],
+        iframe[srcdoc] {{
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+        }}
+
+        h1 {{
+            font-size: clamp(2.05rem, 8vw, 2.65rem) !important;
+            line-height: .98 !important;
+            margin-bottom: .25rem !important;
+        }}
+
+        .block-container {{
+            padding-top: 4.0rem !important;
+            padding-left: .85rem !important;
+            padding-right: .85rem !important;
+            padding-bottom: 1.25rem !important;
+        }}
+
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: .25rem !important;
+        }}
+
+        .stTabs button {{
+            font-size: .86rem !important;
+            padding: .25rem .35rem !important;
+        }}
+
+        .stTextInput label,
+        .stTextArea label,
+        .stSelectbox label,
+        .stDateInput label,
+        .stNumberInput label {{
+            font-size: .82rem !important;
+            font-weight: 700 !important;
+            margin-bottom: .10rem !important;
+        }}
+
+        .stTextInput input,
+        .stNumberInput input,
+        .stTextArea textarea,
+        .stSelectbox [data-baseweb="select"] > div,
+        .stDateInput input {{
+            min-height: 2.28rem !important;
+            height: 2.28rem !important;
+            font-size: .88rem !important;
+            border-radius: 12px !important;
+        }}
+
+        .stTextArea textarea {{
+            min-height: 4.6rem !important;
+            height: 4.6rem !important;
+        }}
+
+        .stButton > button,
+        .stFormSubmitButton > button,
+        .stDownloadButton > button {{
+            min-height: 2.38rem !important;
+            height: 2.38rem !important;
+            border-radius: 12px !important;
+            font-size: .88rem !important;
+            padding-top: .18rem !important;
+            padding-bottom: .18rem !important;
+        }}
+
+        .rf-card,
+        .rf-picking-card,
+        .rf-task-main {{
+            padding: .72rem !important;
+            border-radius: 18px !important;
+            margin-bottom: .62rem !important;
+        }}
+
+        .rf-card-compact {{
+            padding: .58rem !important;
+        }}
+
+        .rf-kicker {{
+            font-size: .64rem !important;
+            letter-spacing: .05em !important;
+        }}
+
+        .rf-product-title {{
+            font-size: .92rem !important;
+            margin: .18rem 0 .35rem 0 !important;
+        }}
+
+        .rf-grid {{
+            gap: .35rem !important;
+        }}
+
+        .rf-grid-compact {{
+            grid-template-columns: 1fr 1fr !important;
+            gap: .28rem !important;
+        }}
+
+        .rf-field {{
+            padding: .34rem .42rem !important;
+            border-radius: 11px !important;
+        }}
+
+        .rf-label {{
+            font-size: .58rem !important;
+        }}
+
+        .rf-value {{
+            font-size: .74rem !important;
+            line-height: 1.15 !important;
+        }}
+
+        .rf-task-header {{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:.5rem;
+            margin-bottom:.38rem;
+        }}
+
+        .rf-task-pk {{
+            color: var(--rf-muted);
+            font-size: .70rem;
+            font-weight: 850;
+        }}
+
+        .rf-task-counter {{
+            margin:0 !important;
+            text-align:right;
+            color: var(--rf-teal-dark);
+            font-size:.78rem;
+            font-weight:950;
+            background: rgba(24,169,153,.12);
+            border: 1px solid rgba(24,169,153,.15);
+            padding:.18rem .45rem;
+            border-radius:999px;
+        }}
+
+        .rf-task-row {{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap:.55rem;
+            align-items:start;
+        }}
+
+        .rf-task-big-label {{
+            font-size: .58rem !important;
+            letter-spacing: .045em !important;
+        }}
+
+        .rf-task-big-value {{
+            font-size: 1.18rem !important;
+            margin-bottom: .35rem !important;
+        }}
+
+        .rf-location-value {{
+            font-size: 1.35rem !important;
+        }}
+
+        .rf-qty-value {{
+            font-size: 1.05rem !important;
+        }}
+
+        .rf-task-product {{
+            color: var(--rf-navy);
+            font-size:.86rem;
+            font-weight:850;
+            line-height:1.15;
+            margin: .08rem 0 .42rem 0;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 305px) !important;
+            min-width: min(58vw, 305px) !important;
+            max-width: min(58vw, 305px) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 1.95rem !important;
+            height: 1.95rem !important;
+            padding: .10rem .30rem .10rem .58rem !important;
+            margin: .005rem 0 !important;
+            border-radius: 7px !important;
+            font-size: .78rem !important;
+            line-height:1.0 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        #MainMenu {{ visibility: hidden; }}
+
+        /* Ajustes finales RF: expander nativo compacto con flecha visible y funciones sangradas. */
+        section[data-testid="stSidebar"] details {{
+            margin: .14rem 0 .42rem 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            padding: .18rem .05rem .16rem .05rem !important;
+            background: transparent !important;
+            border: 0 !important;
+            font-size: .74rem !important;
+            font-weight: 900 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary svg,
+        section[data-testid="stSidebar"] details summary * {{
+            color: rgba(221,247,243,.92) !important;
+            fill: rgba(221,247,243,.92) !important;
+        }}
+
+        section[data-testid="stSidebar"] details .stButton > button {{
+            padding-left: 1.15rem !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }}
+
+        section[data-testid="stSidebar"] details .stButton > button p,
+        section[data-testid="stSidebar"] details .stButton > button div {{
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        {sidebar_css}
+
+        @media (max-width: 640px) {{
+            .block-container {{
+                max-width: 100vw !important;
+                padding-top: 4.25rem !important;
+            }}
+            div[data-testid="stForm"] {{
+                padding: 1.35rem 1rem 1.2rem 1rem !important;
+                border-radius: 24px !important;
+            }}
+            .rf-grid {{ grid-template-columns: 1fr; }}
+        }}
+
+
+        /* Ajustes RF finales: ocultar iframes de scripts, compactar home, menú y picking. */
+        div[data-testid="stElementContainer"]:has(iframe),
+        div[data-testid="stIFrame"],
+        iframe[srcdoc] {{
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] {{
+            width: min(58vw, 300px) !important;
+            min-width: min(58vw, 300px) !important;
+            max-width: min(58vw, 300px) !important;
+        }}
+
+        section[data-testid="stSidebar"] details,
+        section[data-testid="stSidebar"] details[open] {{
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            margin: .05rem 0 .25rem 0 !important;
+            padding: 0 !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            padding: .15rem .05rem .12rem .05rem !important;
+            color: rgba(221,247,243,.92) !important;
+            font-size: .72rem !important;
+            font-weight: 920 !important;
+            letter-spacing: .075em !important;
+            text-transform: uppercase !important;
+        }}
+
+        section[data-testid="stSidebar"] details summary:hover {{
+            background: transparent !important;
+            color: #FFFFFF !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            justify-content: flex-start !important;
+            text-align: left !important;
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            padding: .12rem .35rem .12rem 1.15rem !important;
+            margin: .01rem 0 !important;
+            border-radius: 6px !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: rgba(255,255,255,.90) !important;
+            font-size: .86rem !important;
+            font-weight: 700 !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button p {{
+            width: 100% !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] button[kind="primary"] {{
+            background: rgba(24,169,153,.20) !important;
+            border-left: 3px solid var(--rf-gold) !important;
+            color: #FFFFFF !important;
+            font-weight: 830 !important;
+        }}
+
+        .rf-home-hero {{
+            min-height: auto !important;
+            padding: .85rem !important;
+            border-radius: 22px !important;
+            margin-top: .25rem !important;
+        }}
+
+        .rf-home-logo {{
+            width: 88px !important;
+            height: 88px !important;
+            margin-bottom: .55rem !important;
+        }}
+
+        .rf-home-title {{
+            font-size: clamp(1.45rem, 6.3vw, 2rem) !important;
+            letter-spacing: -.045em !important;
+        }}
+
+        .rf-home-subtitle {{
+            font-size: .78rem !important;
+            margin-top: .25rem !important;
+            margin-bottom: .55rem !important;
+        }}
+
+        .rf-home-grid {{
+            gap: .25rem !important;
+            margin: .15rem auto .55rem auto !important;
+        }}
+
+        .rf-home-chip {{
+            padding: .25rem .45rem !important;
+            font-size: .70rem !important;
+        }}
+
+        .rf-home-help {{
+            font-size: .76rem !important;
+            line-height: 1.25 !important;
+        }}
+
+        .rf-task-main {{
+            padding: .62rem !important;
+            border-radius: 16px !important;
+            margin-bottom: .48rem !important;
+        }}
+
+        .rf-task-header {{
+            display:flex !important;
+            align-items:center !important;
+            justify-content:space-between !important;
+            gap:.35rem !important;
+            margin-bottom:.35rem !important;
+        }}
+
+        .rf-task-counter {{
+            margin:0 !important;
+            text-align:right !important;
+            font-size:.78rem !important;
+            color: var(--rf-teal-dark) !important;
+            font-weight:900 !important;
+        }}
+
+        .rf-task-pk {{
+            font-size:.78rem !important;
+            font-weight:900 !important;
+            color: var(--rf-navy) !important;
+        }}
+
+        .rf-task-big-label {{ font-size:.60rem !important; }}
+        .rf-task-big-value {{ font-size:1.25rem !important; margin-bottom:.35rem !important; }}
+        .rf-task-product {{ font-size:.86rem !important; line-height:1.2 !important; margin-bottom:.35rem !important; font-weight:800 !important; }}
+        .rf-field {{ padding:.38rem .44rem !important; border-radius:10px !important; }}
+        .rf-label {{ font-size:.58rem !important; }}
+        .rf-value {{ font-size:.72rem !important; line-height:1.15 !important; }}
+
+
+        /* ==========================================================
+           Zebra MC3300X / RF micro layout - pantalla aprox. 9 cm x 5 cm
+           Objetivo: reducir scroll y maximizar superficie operativa.
+           ========================================================== */
+        @media (max-width: 900px) {{
+            header[data-testid="stHeader"] {{
+                min-height: 2.15rem !important;
+                height: 2.15rem !important;
+            }}
+
+            header[data-testid="stHeader"] * {{
+                transform: scale(.88);
+                transform-origin: right center;
+            }}
+
+            .block-container {{
+                width: 100vw !important;
+                max-width: 100vw !important;
+                padding-top: 2.55rem !important;
+                padding-left: .34rem !important;
+                padding-right: .34rem !important;
+                padding-bottom: .45rem !important;
+            }}
+
+            h1 {{
+                font-size: 1.02rem !important;
+                line-height: 1.02 !important;
+                margin: 0 0 .12rem 0 !important;
+                letter-spacing: -.035em !important;
+            }}
+
+            h2 {{ font-size: .94rem !important; margin: .10rem 0 .12rem 0 !important; }}
+            h3 {{ font-size: .86rem !important; margin: .08rem 0 .10rem 0 !important; }}
+
+            .stCaptionContainer,
+            [data-testid="stCaptionContainer"],
+            .stMarkdown p {{
+                font-size: .66rem !important;
+                line-height: 1.15 !important;
+                margin-bottom: .12rem !important;
+            }}
+
+            .stTabs [data-baseweb="tab-list"] {{
+                gap: .08rem !important;
+                margin-bottom: .18rem !important;
+            }}
+
+            .stTabs button {{
+                font-size: .66rem !important;
+                line-height: 1.0 !important;
+                padding: .10rem .14rem !important;
+                min-height: 1.35rem !important;
+            }}
+
+            .stTabs button p {{ font-size: .66rem !important; }}
+
+            .stTextInput label,
+            .stTextArea label,
+            .stSelectbox label,
+            .stDateInput label,
+            .stNumberInput label {{
+                font-size: .62rem !important;
+                line-height: 1.0 !important;
+                font-weight: 760 !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            .stTextInput input,
+            .stNumberInput input,
+            .stDateInput input,
+            .stTextArea textarea,
+            .stSelectbox [data-baseweb="select"] > div {{
+                min-height: 1.62rem !important;
+                height: 1.62rem !important;
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+                border-radius: 8px !important;
+                padding-top: .05rem !important;
+                padding-bottom: .05rem !important;
+            }}
+
+            .stSelectbox [data-baseweb="select"] span,
+            .stSelectbox [data-baseweb="select"] div {{
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .stTextArea textarea {{
+                min-height: 2.25rem !important;
+                height: 2.25rem !important;
+            }}
+
+            .stButton > button,
+            .stFormSubmitButton > button,
+            .stDownloadButton > button {{
+                min-height: 1.72rem !important;
+                height: 1.72rem !important;
+                border-radius: 9px !important;
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+                padding: .08rem .22rem !important;
+                margin-top: .02rem !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            div[data-testid="column"] {{
+                padding-left: .08rem !important;
+                padding-right: .08rem !important;
+            }}
+
+            div[data-testid="stHorizontalBlock"] {{
+                gap: .18rem !important;
+            }}
+
+            .rf-card,
+            .rf-picking-card,
+            .rf-task-main {{
+                padding: .42rem !important;
+                border-radius: 12px !important;
+                margin-bottom: .28rem !important;
+                box-shadow: 0 8px 18px rgba(15,74,85,.08) !important;
+            }}
+
+            .rf-card-compact {{ padding: .36rem !important; }}
+
+            .rf-kicker {{
+                font-size: .50rem !important;
+                line-height: 1.0 !important;
+                letter-spacing: .045em !important;
+            }}
+
+            .rf-product-title {{
+                font-size: .70rem !important;
+                line-height: 1.08 !important;
+                margin: .08rem 0 .18rem 0 !important;
+            }}
+
+            .rf-grid,
+            .rf-grid-compact {{
+                grid-template-columns: 1fr 1fr !important;
+                gap: .16rem !important;
+            }}
+
+            .rf-field {{
+                padding: .18rem .24rem !important;
+                border-radius: 8px !important;
+            }}
+
+            .rf-label {{
+                font-size: .46rem !important;
+                line-height: .95 !important;
+                letter-spacing: .035em !important;
+            }}
+
+            .rf-value {{
+                font-size: .58rem !important;
+                line-height: 1.05 !important;
+                margin-top: .05rem !important;
+            }}
+
+            .rf-task-header {{
+                margin-bottom: .16rem !important;
+                gap: .18rem !important;
+            }}
+
+            .rf-task-pk {{
+                font-size: .54rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .rf-task-counter {{
+                font-size: .54rem !important;
+                padding: .08rem .25rem !important;
+                border-radius: 999px !important;
+            }}
+
+            .rf-task-row {{
+                grid-template-columns: 1fr 1fr !important;
+                gap: .20rem !important;
+            }}
+
+            .rf-task-big-label {{
+                font-size: .46rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .rf-task-big-value {{
+                font-size: .86rem !important;
+                line-height: .98 !important;
+                margin-bottom: .14rem !important;
+            }}
+
+            .rf-location-value {{ font-size: 1.02rem !important; }}
+            .rf-qty-value {{ font-size: .82rem !important; }}
+
+            .rf-task-product {{
+                font-size: .62rem !important;
+                line-height: 1.05 !important;
+                margin: .02rem 0 .18rem 0 !important;
+            }}
+
+            .rf-picking-card {{ border-left-width: 4px !important; }}
+            .rf-picking-title {{ font-size: .82rem !important; margin-bottom: .05rem !important; }}
+            .rf-picking-sub {{ font-size: .58rem !important; line-height: 1.08 !important; }}
+            .rf-pill-row {{ gap:.12rem !important; margin-top:.28rem !important; }}
+            .rf-pill {{
+                font-size: .50rem !important;
+                padding: .12rem .26rem !important;
+                border-radius: 999px !important;
+            }}
+
+            .rf-home-hero {{
+                min-height: calc(100vh - 3.1rem) !important;
+                padding: .52rem !important;
+                border-radius: 16px !important;
+            }}
+
+            .rf-home-logo {{
+                width: 58px !important;
+                height: 58px !important;
+                margin-bottom: .30rem !important;
+            }}
+
+            .rf-home-logo img {{ width: 58px !important; }}
+
+            .rf-home-title {{
+                font-size: 1.14rem !important;
+                line-height: .98 !important;
+            }}
+
+            .rf-home-subtitle {{
+                font-size: .58rem !important;
+                margin-top: .14rem !important;
+                margin-bottom: .35rem !important;
+            }}
+
+            .rf-home-grid {{
+                gap: .14rem !important;
+                margin: .12rem auto .30rem auto !important;
+                max-width: 260px !important;
+            }}
+
+            .rf-home-chip {{
+                font-size: .50rem !important;
+                padding: .12rem .26rem !important;
+            }}
+
+            .rf-home-help {{
+                font-size: .54rem !important;
+                line-height: 1.12 !important;
+                max-width: 250px !important;
+            }}
+
+            /* Login RF ultra compacto. */
+            .rf-login-brand {{
+                margin-bottom: .40rem !important;
+            }}
+
+            .rf-login-brand img {{
+                width: 58px !important;
+            }}
+
+            .rf-login-title {{
+                font-size: 1.08rem !important;
+                line-height: 1.0 !important;
+                margin-top: .22rem !important;
+            }}
+
+            .rf-login-subtitle {{
+                font-size: .56rem !important;
+                line-height: 1.08 !important;
+                margin-top: .12rem !important;
+            }}
+
+            div[data-testid="stVerticalBlockBorderWrapper"] {{
+                width: min(82vw, 300px) !important;
+                max-width: 300px !important;
+                padding: .55rem .55rem .50rem .55rem !important;
+                border-radius: 16px !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }}
+
+            /* Sidebar RF para pantalla 9x5: angosto y funcional. */
+            section[data-testid="stSidebar"] {{
+                width: min(56vw, 230px) !important;
+                min-width: min(56vw, 230px) !important;
+                max-width: min(56vw, 230px) !important;
+            }}
+
+            section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+                padding: .42rem .38rem .55rem .38rem !important;
+            }}
+
+            .rf-sidebar-logo {{
+                padding: .18rem .05rem .25rem .05rem !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            .rf-sidebar-logo img {{ width: 48px !important; }}
+
+            section[data-testid="stSidebar"] details {{
+                margin: .04rem 0 .08rem 0 !important;
+            }}
+
+            section[data-testid="stSidebar"] details summary {{
+                padding: .05rem .02rem .04rem .02rem !important;
+                font-size: .55rem !important;
+                line-height: 1.0 !important;
+                letter-spacing: .055em !important;
+            }}
+
+            section[data-testid="stSidebar"] .stButton > button {{
+                min-height: 1.42rem !important;
+                height: 1.42rem !important;
+                padding: .04rem .20rem .04rem .70rem !important;
+                font-size: .60rem !important;
+                border-radius: 5px !important;
+            }}
+
+            .rf-session-simple {{
+                margin: .36rem .08rem 0 .08rem !important;
+                padding-top: .28rem !important;
+            }}
+
+            .rf-session-label {{ font-size: .48rem !important; }}
+            .rf-session-user {{ font-size: .60rem !important; line-height: 1.05 !important; }}
+            .rf-session-role {{ font-size: .52rem !important; }}
+
+            [data-testid="stDataFrame"] {{
+                border-radius: 10px !important;
+                font-size: .58rem !important;
+            }}
+
+            .stAlert {{
+                padding: .25rem .35rem !important;
+                font-size: .60rem !important;
+            }}
+        }}
+
+        @media (max-height: 560px) {{
+            .block-container {{
+                padding-top: 2.30rem !important;
+                padding-bottom: .25rem !important;
+            }}
+
+            h1 {{ font-size: .96rem !important; }}
+            .rf-card, .rf-picking-card, .rf-task-main {{ margin-bottom: .20rem !important; }}
+            .stTextArea textarea {{ min-height: 1.80rem !important; height: 1.80rem !important; }}
+            .rf-task-big-value {{ font-size: .78rem !important; }}
+            .rf-location-value {{ font-size: .94rem !important; }}
+            .rf-qty-value {{ font-size: .76rem !important; }}
+        }}
+
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_login() -> None:
-    apply_rf_theme(login=True)
-    _init_auth_state()
-
-    timeout_message = st.session_state.pop("rf_timeout_message", None) or st.session_state.pop("timeout_message", None)
-    if timeout_message:
-        st.warning(timeout_message)
-
-    if st.session_state.rf_auth_mode == "login":
-        with st.container(border=True):
-            _login_brand()
-            usuario = st.text_input("Usuario o correo", key="rf_login_identifier")
-            password = st.text_input("Contraseña", type="password", key="rf_login_password")
-            ingresar = st.button("Ingresar", use_container_width=True, type="primary", key="rf_login_btn")
-            forgot = st.button("¿Olvidaste tu contraseña?", use_container_width=True, key="rf_login_forgot_btn")
-
-        if ingresar:
-            try:
-                user = authenticate_user(usuario, password)
-            except Exception as exc:
-                st.error("No se pudo validar el usuario. Si Azure SQL estaba pausado, espera unos segundos e intenta nuevamente.")
-                with st.expander("Detalle técnico"):
-                    st.code(str(exc))
-                user = None
-
-            if user:
-                role = _normalize_role(user.get("rol"))
-                if role not in ALLOWED_ROLES:
-                    st.error("Este usuario no tiene rol Operario para usar la app RF.")
-                else:
-                    _set_auth_user(user)
-                    st.session_state.rf_last_activity_ts = time.time()
-                    st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos.")
-
-        if forgot:
-            st.session_state.rf_auth_mode = "forgot_request"
-            st.rerun()
-
-    elif st.session_state.rf_auth_mode == "forgot_request":
-        with st.container(border=True):
-            _login_brand()
-            st.write("Ingresa tu usuario o correo registrado para recibir un código de recuperación.")
-            identifier = st.text_input("Usuario o correo", key="rf_forgot_identifier")
-            enviar = st.button("Enviar código", use_container_width=True, type="primary", key="rf_forgot_send")
-            volver = st.button("Volver al login", use_container_width=True, key="rf_forgot_back")
-
-        if enviar:
-            if not identifier.strip():
-                st.error("Ingresa tu usuario o correo.")
-            else:
-                try:
-                    request_password_reset(identifier)
-                    st.session_state.rf_reset_identifier = identifier.strip()
-                    st.session_state.rf_auth_mode = "forgot_verify"
-                    st.success("Si el usuario existe y tiene correo configurado, se envió un código.")
-                    st.rerun()
-                except Exception as exc:
-                    st.error("No se pudo enviar el correo de recuperación.")
-                    with st.expander("Detalle técnico"):
-                        st.code(str(exc))
-
-        if volver:
-            st.session_state.rf_auth_mode = "login"
-            st.rerun()
-
-    elif st.session_state.rf_auth_mode == "forgot_verify":
-        with st.container(border=True):
-            _login_brand()
-            identifier = st.text_input("Usuario o correo", value=st.session_state.rf_reset_identifier, key="rf_verify_identifier")
-            code = st.text_input("Código recibido", key="rf_verify_code")
-            new_password = st.text_input("Nueva contraseña", type="password", key="rf_verify_new_password")
-            confirm_password = st.text_input("Confirmar nueva contraseña", type="password", key="rf_verify_confirm_password")
-            cambiar = st.button("Restablecer contraseña", use_container_width=True, type="primary", key="rf_verify_change")
-            volver = st.button("Volver al login", use_container_width=True, key="rf_verify_back")
-
-        if cambiar:
-            if not identifier.strip() or not code.strip():
-                st.error("Ingresa usuario/correo y código.")
-            elif len(new_password) < 8:
-                st.error("La nueva contraseña debe tener al menos 8 caracteres.")
-            elif new_password != confirm_password:
-                st.error("Las contraseñas no coinciden.")
-            else:
-                ok, message = reset_password_with_code(identifier, code, new_password)
-                if ok:
-                    st.success(message)
-                    st.session_state.rf_auth_mode = "login"
-                else:
-                    st.error(message)
-
-        if volver:
-            st.session_state.rf_auth_mode = "login"
-            st.rerun()
-
-def _set_page(page_name: str) -> None:
-    st.session_state.rf_page = page_name
-    st.session_state.rf_collapse_sidebar = True
-
-
-def _toggle_group(group_key: str) -> None:
-    st.session_state[group_key] = not bool(st.session_state.get(group_key, False))
-
-
-def _render_auto_collapse_sidebar() -> None:
-    """Cierra el sidebar en móvil después de elegir una función."""
-    if not st.session_state.pop("rf_collapse_sidebar", False):
-        return
-
-    html = """
-    <script>
-    (function() {
-        function closeSidebarAttempt() {
-            const doc = window.parent.document;
-            const candidates = [];
-            const selectors = [
-                '[data-testid="stSidebarCollapseButton"] button',
-                '[data-testid="stSidebarCollapseButton"]',
-                'button[title="Close sidebar"]',
-                'button[aria-label="Close sidebar"]',
-                'button[aria-label="Collapse sidebar"]',
-                'button[title="Collapse sidebar"]'
-            ];
-            selectors.forEach(function(selector) {
-                doc.querySelectorAll(selector).forEach(function(el) { candidates.push(el); });
-            });
-            Array.from(doc.querySelectorAll('button')).forEach(function(btn) {
-                const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
-                const text = (btn.innerText || '').trim();
-                if (
-                    label.includes('close sidebar') ||
-                    label.includes('collapse') ||
-                    label.includes('ocultar') ||
-                    label.includes('cerrar') ||
-                    text.includes('«') ||
-                    text.includes('‹') ||
-                    text.includes('<<')
-                ) {
-                    candidates.push(btn);
-                }
-            });
-            for (const el of candidates) {
-                try {
-                    if (el && el.offsetParent !== null) {
-                        el.click();
-                        return true;
-                    }
-                } catch (e) {}
-            }
-            return false;
-        }
-        let attempts = 0;
-        const timer = setInterval(function() {
-            attempts += 1;
-            if (closeSidebarAttempt() || attempts >= 18) {
-                clearInterval(timer);
-            }
-        }, 120);
-    })();
-    </script>
-    """
-    components.html(html, height=0, width=0)
-
-def render_sidebar() -> None:
-    render_rf_logo_sidebar()
-
-    with st.sidebar.expander("▣ MOVIMIENTOS", expanded=False):
-        if st.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
-            _set_page("Ingresos")
-            st.rerun()
-        if st.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
-            _set_page("Picking")
-            st.rerun()
-        if st.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
-            _set_page("Transferencia")
-            st.rerun()
-
-    with st.sidebar.expander("⌕ CONSULTAS", expanded=False):
-        if st.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
-            _set_page("Stock")
-            st.rerun()
-
-    user = current_user()
-    display_name = f"{user.get('nombres','')} {user.get('apellidos','')}".strip() or user.get("usuario_login", "")
+def render_rf_logo_sidebar() -> None:
     st.sidebar.markdown(
         f"""
-        <div class="rf-session-simple">
-            <div class="rf-session-label">Sesión activa</div>
-            <div class="rf-session-user">{display_name}</div>
-            <div class="rf-session-role">Rol: {user.get('rol','')}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.sidebar.button("Cerrar sesión", use_container_width=True, key="rf_logout"):
-        _logout()
-
-def render_home() -> None:
-    st.markdown(
-        f"""
-        <div class="rf-home-hero">
-            <div class="rf-home-logo">{logo_img(128)}</div>
-            <div class="rf-home-title">RF WMS Block B</div>
-            <div class="rf-home-subtitle">Operación móvil de almacén</div>
-            <div class="rf-home-grid">
-                <div class="rf-home-chip">Movimientos</div>
-                <div class="rf-home-chip">Ingresos</div>
-                <div class="rf-home-chip">Picking</div>
-                <div class="rf-home-chip">Transferencia</div>
-                <div class="rf-home-chip">Stock</div>
-            </div>
-            <div class="rf-home-help">Abre el menú lateral y selecciona una función para iniciar.</div>
+        <div class="rf-sidebar-logo">
+            {logo_img(86)}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-# ---------------------------------------------------------------------------
-# Ingresos RF
-# ---------------------------------------------------------------------------
-
-
-def _init_ingreso_state() -> None:
-    st.session_state.setdefault("rf_ingreso_detalles", [])
-    st.session_state.setdefault("rf_scan_codigo", "")
-    st.session_state.setdefault("rf_lote", "")
-    st.session_state.setdefault("rf_cantidad", "")
-    st.session_state.setdefault("rf_texto_item", "")
-
-    if st.session_state.pop("rf_clear_detail_inputs", False):
-        st.session_state.rf_scan_codigo = ""
-        st.session_state.rf_lote = ""
-        st.session_state.rf_cantidad = ""
-        st.session_state.rf_texto_item = ""
-
-
-def _provider_selectbox() -> tuple[pd.DataFrame, int | None]:
-    proveedores = rf_get_proveedores()
-    if proveedores.empty:
-        st.error("No hay proveedores activos. Registra proveedores desde la app de escritorio.")
-        return proveedores, None
-
-    labels = proveedores.apply(lambda r: f"{r['ruc']} | {r['razon_social']}", axis=1).tolist()
-    selected_label = st.selectbox("Proveedor", labels, key="rf_header_proveedor")
-    selected = proveedores.iloc[labels.index(selected_label)]
-    return proveedores, int(selected["id_proveedor"])
-
-
-def render_ingresos() -> None:
-    _init_ingreso_state()
-    st.title("Ingresos RF")
-    st.caption("Recepción móvil por SKU o EAN")
-
-    tab_header, tab_add, tab_detail = st.tabs(["Datos Cabecera", "Agregar Detalle", "Detalle"])
-
-    with tab_header:
-        _, id_proveedor = _provider_selectbox()
-        st.date_input("Fecha de ingreso", value=date.today(), key="rf_header_fecha")
-        st.text_input("Documento de referencia", key="rf_header_documento", placeholder="Guía, factura, OC, etc.")
-        st.text_area("Texto de cabecera", key="rf_header_texto", placeholder="Opcional")
-        st.session_state.rf_header_id_proveedor = id_proveedor
-
-    with tab_add:
-        stage = rf_get_stage_recepcion()
-        if not stage:
-            st.error("No existe la ubicación stage B1.RE.01 activa. Ejecuta la migración RF o crea la ubicación.")
-            st.stop()
-
-        scanned_code = st.text_input(
-            "Escanear SKU o EAN",
-            key="rf_scan_codigo",
-            placeholder="Escanea o ingresa SKU/EAN",
-        ).strip()
-
-        product = rf_find_product_by_code(scanned_code) if scanned_code else None
-        render_rf_product_card(product, scanned_code)
-
-        if product:
-            requires_lot = bool(product.get("requiere_lote"))
-            if requires_lot:
-                st.text_input("Lote", key="rf_lote", placeholder="Obligatorio")
-            else:
-                st.text_input("Lote", key="rf_lote", placeholder="No aplica", disabled=True)
-
-            st.text_input("Cantidad a ingresar", key="rf_cantidad", placeholder="Ejemplo: 1, 10, 2.5")
-            st.text_area("Texto de posición", key="rf_texto_item", placeholder="Opcional")
-            st.info(f"Ubicación destino por defecto: {stage['codigo_ubicacion']}")
-
-            if st.button("Agregar Detalle", type="primary", use_container_width=True):
-                try:
-                    qty = _parse_qty(st.session_state.rf_cantidad)
-                    lote = str(st.session_state.rf_lote or "").strip()
-                    if requires_lot and not lote:
-                        raise ValueError("El producto requiere lote.")
-
-                    detail = {
-                        "id_producto": int(product["id_producto"]),
-                        "sku": str(product["sku"]),
-                        "ean_serie": product.get("ean_serie") or "",
-                        "nombre_producto": str(product["nombre_producto"]),
-                        "codigo_unidad": str(product["codigo_unidad"]),
-                        "nombre_categoria": str(product.get("nombre_categoria") or ""),
-                        "requiere_lote": bool(product.get("requiere_lote")),
-                        "lote": lote or None,
-                        "cantidad": qty,
-                        "codigo_ubicacion_destino": stage["codigo_ubicacion"],
-                        "id_ubicacion_destino": int(stage["id_ubicacion"]),
-                        "texto_item": str(st.session_state.rf_texto_item or "").strip(),
-                    }
-                    st.session_state.rf_ingreso_detalles.append(detail)
-                    st.session_state.rf_clear_detail_inputs = True
-                    st.success("Detalle agregado correctamente.")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(str(exc))
-        elif scanned_code:
-            st.warning("Escanea un SKU/EAN válido para habilitar los datos de cantidad.")
-
-    with tab_detail:
-        details = st.session_state.rf_ingreso_detalles
-        if not details:
-            st.info("Aún no has agregado detalles.")
-            return
-
-        df = pd.DataFrame(details)
-        visible_cols = [
-            "sku",
-            "ean_serie",
-            "nombre_producto",
-            "codigo_unidad",
-            "cantidad",
-            "lote",
-            "codigo_ubicacion_destino",
-            "texto_item",
-        ]
-        st.dataframe(df[visible_cols], use_container_width=True, hide_index=True)
-
-        col1, col2 = st.columns(2)
-        if col1.button("Limpiar detalles", use_container_width=True):
-            st.session_state.rf_ingreso_detalles = []
-            st.rerun()
-
-        if col2.button("Confirmar Ingreso", type="primary", use_container_width=True):
-            st.session_state.rf_confirm_ingreso = True
-
-        if st.session_state.get("rf_confirm_ingreso"):
-            _render_confirm_ingreso_dialog()
-
-
-def _confirm_ingreso() -> None:
-    id_proveedor = st.session_state.get("rf_header_id_proveedor")
-    if not id_proveedor:
-        st.error("Selecciona proveedor en Datos Cabecera.")
-        return
-    if not st.session_state.get("rf_ingreso_detalles"):
-        st.error("No hay detalles para confirmar.")
+def render_rf_product_card(product: dict | None, searched_code: str) -> None:
+    if not searched_code:
         return
 
-    try:
-        id_movimiento = confirmar_ingreso_rf(
-            id_proveedor=int(id_proveedor),
-            fecha_ingreso=st.session_state.get("rf_header_fecha", date.today()),
-            documento_referencia=str(st.session_state.get("rf_header_documento", "")).strip(),
-            texto_cabecera=str(st.session_state.get("rf_header_texto", "")).strip(),
-            id_usuario=current_user_id(),
-            detalles=st.session_state.rf_ingreso_detalles,
-        )
-        st.session_state.rf_ingreso_detalles = []
-        st.session_state.rf_confirm_ingreso = False
-        rf_clear_master_cache()
-        st.success(f"Ingreso confirmado correctamente. Movimiento: {id_movimiento}")
-    except Exception as exc:
-        st.error("No se pudo confirmar el ingreso.")
-        with st.expander("Detalle técnico"):
-            st.code(str(exc))
-
-
-def _render_confirm_ingreso_dialog() -> None:
-    if hasattr(st, "dialog"):
-        @st.dialog("Desea confirmar Movimiento")
-        def _dialog():
-            st.write("Se contabilizarán todos los detalles agregados en stock y movimientos.")
-            col_yes, col_no = st.columns(2)
-            if col_yes.button("Sí", type="primary", use_container_width=True):
-                _confirm_ingreso()
-                st.rerun()
-            if col_no.button("No", use_container_width=True):
-                st.session_state.rf_confirm_ingreso = False
-                st.rerun()
-
-        _dialog()
-    else:
-        with st.container(border=True):
-            st.warning("¿Desea confirmar Movimiento?")
-            col_yes, col_no = st.columns(2)
-            if col_yes.button("Sí", type="primary", use_container_width=True):
-                _confirm_ingreso()
-            if col_no.button("No", use_container_width=True):
-                st.session_state.rf_confirm_ingreso = False
-                st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# Picking RF
-# ---------------------------------------------------------------------------
-
-
-def _start_picking(id_picking: int, nro_picking: str, total_tareas: int) -> None:
-    st.session_state.rf_picking_id = int(id_picking)
-    st.session_state.rf_picking_nro = nro_picking
-    st.session_state.rf_picking_mode = "tareas"
-    st.session_state.rf_picking_total = int(total_tareas or 0)
-    st.session_state.rf_picking_done_session = 0
-    rf_clear_master_cache()
-    st.rerun()
-
-
-def _back_to_picking_list() -> None:
-    for key in ["rf_picking_id", "rf_picking_nro", "rf_picking_mode", "rf_picking_total", "rf_picking_done_session", "rf_cancel_picking_process"]:
-        if key in st.session_state:
-            del st.session_state[key]
-    rf_clear_master_cache()
-    st.rerun()
-
-
-def render_picking() -> None:
-    st.title("Picking RF")
-    st.caption("Atención secuencial de tareas liberadas")
-
-    mode = st.session_state.get("rf_picking_mode", "lista")
-    if mode == "tareas" and st.session_state.get("rf_picking_id"):
-        _render_picking_tareas()
-    elif mode == "auditoria" and st.session_state.get("rf_picking_id"):
-        _render_picking_auditoria()
-    else:
-        _render_picking_lista()
-
-
-def _render_picking_lista() -> None:
-    data = rf_get_pickings_pendientes()
-    if data.empty:
-        st.info("No hay pickings pendientes de atención.")
-        return
-
-    st.markdown('<div class="rf-kicker">Pickings pendientes</div>', unsafe_allow_html=True)
-    for _, row in data.iterrows():
+    if not product:
         st.markdown(
             f"""
-            <div class="rf-picking-card">
-                <div class="rf-picking-title">▥ {row['nro_picking']}</div>
-                <div class="rf-picking-sub"><b>Solicitante:</b> {row.get('solicitante') or '-'}</div>
-                <div class="rf-picking-sub"><b>Cuenta:</b> {row.get('cuenta_logistica') or '-'}</div>
-                <div class="rf-pill-row">
-                    <div class="rf-pill">Qty: {float(row.get('cantidad_total') or 0):,.2f}</div>
-                    <div class="rf-pill">Códigos: {int(row.get('codigos') or 0)}</div>
-                    <div class="rf-pill">Ubicaciones: {int(row.get('ubicaciones') or 0)}</div>
-                    <div class="rf-pill">Tareas: {int(row.get('tareas_pendientes') or 0)}</div>
-                    <div class="rf-pill">{row.get('estado') or ''}</div>
+            <div class="rf-card rf-product-error">
+                <div class="rf-kicker">Código no encontrado</div>
+                <div class="rf-product-title">❌ {searched_code}</div>
+                <div style="color:var(--rf-muted);font-weight:650;">
+                    El SKU/EAN escaneado no existe o está inactivo.
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        if st.button(f"Atender {row['nro_picking']}", key=f"rf_start_pk_{row['id_picking']}", use_container_width=True, type="primary"):
-            _start_picking(int(row["id_picking"]), str(row["nro_picking"]), int(row.get("tareas_pendientes") or 0))
+        return
 
-
-def _render_picking_tareas() -> None:
-    id_picking = int(st.session_state.rf_picking_id)
-    tareas = rf_get_tareas_picking(id_picking)
-    total = int(st.session_state.get("rf_picking_total") or len(tareas))
-    done = int(st.session_state.get("rf_picking_done_session") or 0)
-
-    if tareas.empty:
-        st.session_state.rf_picking_mode = "auditoria"
-        st.rerun()
-
-    tarea = tareas.iloc[0].to_dict()
-    current = min(done + 1, total if total > 0 else 1)
-
+    ean = product.get("ean_serie") or "-"
+    flag_lote = "SI" if bool(product.get("requiere_lote")) else "NO"
     st.markdown(
         f"""
-        <div class="rf-task-main rf-task-compact">
-            <div class="rf-task-header">
-                <div class="rf-task-pk">{st.session_state.get('rf_picking_nro', '')}</div>
-                <div class="rf-task-counter">Tarea {current}/{total}</div>
-            </div>
-            <div class="rf-task-row">
-                <div>
-                    <div class="rf-task-big-label">Ubicación</div>
-                    <div class="rf-task-big-value rf-location-value">{tarea.get('codigo_ubicacion')}</div>
-                </div>
-                <div>
-                    <div class="rf-task-big-label">Cantidad</div>
-                    <div class="rf-task-big-value rf-qty-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
-                </div>
-            </div>
-            <div class="rf-task-big-label">Artículo</div>
-            <div class="rf-task-product">{tarea.get('sku')} · {tarea.get('nombre_producto')}</div>
-            <div class="rf-grid rf-grid-compact">
-                <div class="rf-field"><div class="rf-label">Zona</div><div class="rf-value">{tarea.get('codigo_zona')} - {tarea.get('nombre_zona')}</div></div>
-                <div class="rf-field"><div class="rf-label">Cuenta</div><div class="rf-value">{tarea.get('codigo_cuenta')}</div></div>
-                <div class="rf-field"><div class="rf-label">Solicitante</div><div class="rf-value">{tarea.get('solicitante') or '-'}</div></div>
-                <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{tarea.get('lote') or '-'}</div></div>
+        <div class="rf-card rf-product-ok">
+            <div class="rf-kicker">Código reconocido ✅</div>
+            <div class="rf-product-title">{product.get('nombre_producto','')}</div>
+            <div class="rf-grid">
+                <div class="rf-field"><div class="rf-label">SKU</div><div class="rf-value">{product.get('sku','')}</div></div>
+                <div class="rf-field"><div class="rf-label">EAN</div><div class="rf-value">{ean}</div></div>
+                <div class="rf-field"><div class="rf-label">Unidad</div><div class="rf-value">{product.get('codigo_unidad','')}</div></div>
+                <div class="rf-field"><div class="rf-label">Categoría</div><div class="rf-value">{product.get('nombre_categoria','')}</div></div>
+                <div class="rf-field"><div class="rf-label">Aplica lote</div><div class="rf-value">{flag_lote}</div></div>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    col1, col2 = st.columns(2)
-    if col1.button("Confirmar", type="primary", use_container_width=True):
-        try:
-            confirmar_tarea_picking_rf(int(tarea["id_picking_detalle"]), current_user_id())
-            st.session_state.rf_picking_done_session = done + 1
-            rf_clear_master_cache()
-            st.rerun()
-        except Exception as exc:
-            st.error("No se pudo confirmar la tarea.")
-            with st.expander("Detalle técnico"):
-                st.code(str(exc))
-
-    if col2.button("Cancelar", use_container_width=True):
-        st.session_state.rf_cancel_picking_process = True
-
-    if st.session_state.get("rf_cancel_picking_process"):
-        _render_cancel_picking_dialog()
-
-
-def _render_cancel_picking_dialog() -> None:
-    if hasattr(st, "dialog"):
-        @st.dialog("Desea cancelar el proceso")
-        def _dialog():
-            st.write("Volverás a la lista de pickings. Las tareas ya confirmadas se mantienen completadas; la tarea actual y las siguientes quedarán pendientes.")
-            col_yes, col_no = st.columns(2)
-            if col_yes.button("Sí", use_container_width=True, type="primary"):
-                _back_to_picking_list()
-            if col_no.button("No", use_container_width=True):
-                st.session_state.rf_cancel_picking_process = False
-                st.rerun()
-
-        _dialog()
-    else:
-        st.warning("¿Desea cancelar el proceso?")
-        col_yes, col_no = st.columns(2)
-        if col_yes.button("Sí", use_container_width=True, type="primary"):
-            _back_to_picking_list()
-        if col_no.button("No", use_container_width=True):
-            st.session_state.rf_cancel_picking_process = False
-            st.rerun()
-
-
-def _render_picking_auditoria() -> None:
-    id_picking = int(st.session_state.rf_picking_id)
-    nro = st.session_state.get("rf_picking_nro", "")
-    st.subheader(f"Auditoría {nro}")
-    auditoria = rf_get_auditoria_picking(id_picking)
-    if auditoria.empty:
-        st.warning("No hay tareas completadas para auditar.")
-    else:
-        st.dataframe(auditoria, use_container_width=True, hide_index=True)
-
-    if st.button("Confirmar auditoría", type="primary", use_container_width=True):
-        _back_to_picking_list()
-
-
-# ---------------------------------------------------------------------------
-# Transferencia RF
-# ---------------------------------------------------------------------------
-
-
-def _clear_transfer_state() -> None:
-    for key in [
-        "rf_transfer_origen",
-        "rf_transfer_producto_label",
-        "rf_transfer_lote",
-        "rf_transfer_destino",
-        "rf_transfer_destino_id",
-        "rf_transfer_cantidad",
-        "rf_transfer_confirm",
-    ]:
-        if key in st.session_state:
-            del st.session_state[key]
-    rf_clear_master_cache()
-    st.rerun()
-
-
-def render_transferencia() -> None:
-    st.title("Transferencia RF")
-    st.caption("Movimiento interno por ubicación y código")
-
-    ubicaciones = rf_get_ubicaciones_activas()
-    if ubicaciones.empty:
-        st.error("No hay ubicaciones activas.")
-        return
-
-    ubicacion_options = [""] + ubicaciones["codigo_ubicacion"].astype(str).tolist()
-    origen = st.selectbox("Ubicación de origen", ubicacion_options, key="rf_transfer_origen")
-    if not origen:
-        st.info("Selecciona una ubicación origen para ver códigos disponibles.")
-        return
-
-    stock_origen = rf_get_stock_por_ubicacion(origen)
-    if stock_origen.empty:
-        st.warning("La ubicación seleccionada no tiene stock disponible.")
-        return
-
-    productos = (
-        stock_origen.groupby(["id_producto", "sku", "nombre_producto", "codigo_unidad"], as_index=False)
-        .agg(cantidad_disponible=("cantidad_disponible", "sum"), lotes=("lote", "nunique"))
-        .sort_values(["sku", "nombre_producto"])
-    )
-    product_labels = productos.apply(lambda r: f"{r['sku']} | {r['nombre_producto']} | Disp: {float(r['cantidad_disponible']):,.2f} {r['codigo_unidad']}", axis=1).tolist()
-    producto_label = st.selectbox("Código", product_labels, key="rf_transfer_producto_label")
-    prod = productos.iloc[product_labels.index(producto_label)]
-    product_rows = stock_origen[stock_origen["id_producto"] == prod["id_producto"]].copy()
-
-    # Si existen varios lotes para el producto en la ubicación, el disponible
-    # debe mostrarse por lote seleccionado, no por total del código.
-    lotes_disponibles = (
-        product_rows.assign(lote_key=product_rows["lote"].fillna("").astype(str))
-        .groupby("lote_key", as_index=False)
-        .agg(cantidad_disponible=("cantidad_disponible", "sum"))
-        .sort_values("lote_key")
-    )
-
-    if len(lotes_disponibles) > 1:
-        lote_labels = [l if l else "Sin lote" for l in lotes_disponibles["lote_key"].tolist()]
-        lote_label = st.selectbox("Lote", lote_labels, key="rf_transfer_lote")
-        lote = "" if lote_label == "Sin lote" else lote_label
-        stock_lote = product_rows[product_rows["lote"].fillna("").astype(str) == lote].iloc[0].copy()
-        disponible_lote = float(lotes_disponibles.loc[lotes_disponibles["lote_key"] == lote, "cantidad_disponible"].iloc[0])
-        stock_lote["cantidad_disponible"] = disponible_lote
-    else:
-        stock_lote = product_rows.iloc[0].copy()
-        lote = str(stock_lote.get("lote") or "")
-        disponible_lote = float(stock_lote.get("cantidad_disponible") or 0)
-        if lote:
-            st.info(f"Lote: {lote}")
-
-    st.markdown(
-        f"""
-        <div class="rf-card rf-card-compact">
-            <div class="rf-kicker">Stock en ubicación</div>
-            <div class="rf-product-title">{prod['sku']} - {prod['nombre_producto']}</div>
-            <div class="rf-grid rf-grid-compact">
-                <div class="rf-field"><div class="rf-label">Ubicación</div><div class="rf-value">{origen}</div></div>
-                <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{lote if lote else '-'}</div></div>
-                <div class="rf-field"><div class="rf-label">Disponible lote</div><div class="rf-value">{disponible_lote:,.2f} {prod['codigo_unidad']}</div></div>
-                <div class="rf-field"><div class="rf-label">Disponible total código</div><div class="rf-value">{float(prod['cantidad_disponible']):,.2f} {prod['codigo_unidad']}</div></div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    destino = st.text_input(
-        "Ubicación destino",
-        key="rf_transfer_destino",
-        placeholder="Escanea o escribe ubicación destino",
-    ).strip().upper()
-    cantidad = st.text_input("Cantidad", key="rf_transfer_cantidad", placeholder="Cantidad parcial o total")
-
-    col1, col2 = st.columns(2)
-    if col1.button("Confirmar Movimiento", type="primary", use_container_width=True):
-        try:
-            qty = _parse_qty(cantidad)
-            disponible = float(stock_lote["cantidad_disponible"] or 0)
-            if not destino:
-                raise ValueError("Ingresa ubicación destino.")
-            destino_row = ubicaciones[ubicaciones["codigo_ubicacion"].astype(str).str.upper() == destino]
-            if destino_row.empty:
-                raise ValueError("La ubicación destino no existe o está inactiva.")
-            if destino == str(origen).upper():
-                raise ValueError("La ubicación origen y destino no pueden ser iguales.")
-            if qty > disponible:
-                raise ValueError("La cantidad supera el stock disponible del lote/ubicación.")
-            st.session_state.rf_transfer_confirm = True
-            st.session_state.rf_transfer_destino_id = int(destino_row.iloc[0]["id_ubicacion"])
-        except Exception as exc:
-            st.error(str(exc))
-
-    if col2.button("Cancelar", use_container_width=True):
-        _clear_transfer_state()
-
-    if st.session_state.get("rf_transfer_confirm"):
-        _render_confirm_transfer_dialog(stock_lote, destino, cantidad, st.session_state.get("rf_transfer_destino_id"))
-
-
-def _render_confirm_transfer_dialog(stock_lote: pd.Series, destino: str, cantidad: str, id_destino: int | None) -> None:
-    def _do_confirm():
-        if not id_destino:
-            raise ValueError("No se pudo identificar la ubicación destino.")
-        id_mov = confirmar_transferencia_rf(
-            id_producto=int(stock_lote["id_producto"]),
-            id_ubicacion_origen=int(stock_lote["id_ubicacion"]),
-            id_ubicacion_destino=int(id_destino),
-            cantidad=_parse_qty(cantidad),
-            id_usuario=current_user_id(),
-            lote=stock_lote.get("lote") or None,
-        )
-        st.success(f"Transferencia confirmada. Movimiento: {id_mov}")
-        _clear_transfer_state()
-
-    if hasattr(st, "dialog"):
-        @st.dialog("Desea confirmar movimiento")
-        def _dialog():
-            st.write("Se actualizará el stock de origen y destino.")
-            col_yes, col_no = st.columns(2)
-            if col_yes.button("Sí", type="primary", use_container_width=True):
-                _do_confirm()
-            if col_no.button("No", use_container_width=True):
-                st.session_state.rf_transfer_confirm = False
-                st.rerun()
-
-        _dialog()
-    else:
-        st.warning("¿Desea confirmar movimiento?")
-        col_yes, col_no = st.columns(2)
-        if col_yes.button("Sí", type="primary", use_container_width=True):
-            _do_confirm()
-        if col_no.button("No", use_container_width=True):
-            st.session_state.rf_transfer_confirm = False
-            st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# Stock RF
-# ---------------------------------------------------------------------------
-
-
-def render_stock() -> None:
-    st.title("Stock RF")
-    st.caption("Consulta rápida por SKU, EAN, descripción o ubicación")
-    code = st.text_input("Escanear o buscar", placeholder="SKU / EAN / descripción")
-    ubicacion = st.text_input("Ubicación", placeholder="Código de ubicación opcional")
-    if st.button("Consultar", type="primary", use_container_width=True):
-        st.session_state.rf_stock_query = code.strip()
-        st.session_state.rf_stock_ubicacion = ubicacion.strip()
-
-    query = st.session_state.get("rf_stock_query", "")
-    query_ubicacion = st.session_state.get("rf_stock_ubicacion", "")
-    if not query and not query_ubicacion:
-        st.info("Ingresa o escanea un código, o consulta por ubicación.")
-        return
-
-    data = rf_get_stock_consulta(query, query_ubicacion)
-    if data.empty:
-        st.warning("No se encontró stock para la búsqueda.")
-    else:
-        st.dataframe(data, use_container_width=True, hide_index=True)
-
-
-# ---------------------------------------------------------------------------
-# Router RF
-# ---------------------------------------------------------------------------
-
-
-def _rf_main() -> None:
-    _init_auth_state()
-    _handle_timeout_query_param()
-
-    if not st.session_state.rf_authenticated:
-        render_login()
-        return
-
-    st.session_state.authenticated = True
-    st.session_state.auth_user = st.session_state.rf_auth_user
-
-    if _enforce_rf_idle_timeout():
-        st.rerun()
-
-    _render_rf_idle_timeout_script(RF_IDLE_TIMEOUT_SECONDS)
-
-    apply_rf_theme(login=False)
-    st.session_state.setdefault("rf_page", "Inicio")
-    render_sidebar()
-    _render_auto_collapse_sidebar()
-
-    page = st.session_state.rf_page
-    if page == "Inicio":
-        render_home()
-    elif page == "Ingresos":
-        render_ingresos()
-    elif page == "Picking":
-        render_picking()
-    elif page == "Transferencia":
-        render_transferencia()
-    elif page == "Stock":
-        render_stock()
-    else:
-        render_home()
-
-
-_rf_page = st.Page(_rf_main, title="RF WMS Block B")
-_rf_nav = st.navigation([_rf_page], position="hidden")
-_rf_nav.run()
