@@ -964,6 +964,362 @@ def apply_rf_theme(login: bool = False) -> None:
         .rf-field {{ padding:.38rem .44rem !important; border-radius:10px !important; }}
         .rf-label {{ font-size:.58rem !important; }}
         .rf-value {{ font-size:.72rem !important; line-height:1.15 !important; }}
+
+
+        /* ==========================================================
+           Zebra MC3300X / RF micro layout - pantalla aprox. 9 cm x 5 cm
+           Objetivo: reducir scroll y maximizar superficie operativa.
+           ========================================================== */
+        @media (max-width: 900px) {{
+            header[data-testid="stHeader"] {{
+                min-height: 2.15rem !important;
+                height: 2.15rem !important;
+            }}
+
+            header[data-testid="stHeader"] * {{
+                transform: scale(.88);
+                transform-origin: right center;
+            }}
+
+            .block-container {{
+                width: 100vw !important;
+                max-width: 100vw !important;
+                padding-top: 2.55rem !important;
+                padding-left: .34rem !important;
+                padding-right: .34rem !important;
+                padding-bottom: .45rem !important;
+            }}
+
+            h1 {{
+                font-size: 1.02rem !important;
+                line-height: 1.02 !important;
+                margin: 0 0 .12rem 0 !important;
+                letter-spacing: -.035em !important;
+            }}
+
+            h2 {{ font-size: .94rem !important; margin: .10rem 0 .12rem 0 !important; }}
+            h3 {{ font-size: .86rem !important; margin: .08rem 0 .10rem 0 !important; }}
+
+            .stCaptionContainer,
+            [data-testid="stCaptionContainer"],
+            .stMarkdown p {{
+                font-size: .66rem !important;
+                line-height: 1.15 !important;
+                margin-bottom: .12rem !important;
+            }}
+
+            .stTabs [data-baseweb="tab-list"] {{
+                gap: .08rem !important;
+                margin-bottom: .18rem !important;
+            }}
+
+            .stTabs button {{
+                font-size: .66rem !important;
+                line-height: 1.0 !important;
+                padding: .10rem .14rem !important;
+                min-height: 1.35rem !important;
+            }}
+
+            .stTabs button p {{ font-size: .66rem !important; }}
+
+            .stTextInput label,
+            .stTextArea label,
+            .stSelectbox label,
+            .stDateInput label,
+            .stNumberInput label {{
+                font-size: .62rem !important;
+                line-height: 1.0 !important;
+                font-weight: 760 !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            .stTextInput input,
+            .stNumberInput input,
+            .stDateInput input,
+            .stTextArea textarea,
+            .stSelectbox [data-baseweb="select"] > div {{
+                min-height: 1.62rem !important;
+                height: 1.62rem !important;
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+                border-radius: 8px !important;
+                padding-top: .05rem !important;
+                padding-bottom: .05rem !important;
+            }}
+
+            .stSelectbox [data-baseweb="select"] span,
+            .stSelectbox [data-baseweb="select"] div {{
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .stTextArea textarea {{
+                min-height: 2.25rem !important;
+                height: 2.25rem !important;
+            }}
+
+            .stButton > button,
+            .stFormSubmitButton > button,
+            .stDownloadButton > button {{
+                min-height: 1.72rem !important;
+                height: 1.72rem !important;
+                border-radius: 9px !important;
+                font-size: .68rem !important;
+                line-height: 1.0 !important;
+                padding: .08rem .22rem !important;
+                margin-top: .02rem !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            div[data-testid="column"] {{
+                padding-left: .08rem !important;
+                padding-right: .08rem !important;
+            }}
+
+            div[data-testid="stHorizontalBlock"] {{
+                gap: .18rem !important;
+            }}
+
+            .rf-card,
+            .rf-picking-card,
+            .rf-task-main {{
+                padding: .42rem !important;
+                border-radius: 12px !important;
+                margin-bottom: .28rem !important;
+                box-shadow: 0 8px 18px rgba(15,74,85,.08) !important;
+            }}
+
+            .rf-card-compact {{ padding: .36rem !important; }}
+
+            .rf-kicker {{
+                font-size: .50rem !important;
+                line-height: 1.0 !important;
+                letter-spacing: .045em !important;
+            }}
+
+            .rf-product-title {{
+                font-size: .70rem !important;
+                line-height: 1.08 !important;
+                margin: .08rem 0 .18rem 0 !important;
+            }}
+
+            .rf-grid,
+            .rf-grid-compact {{
+                grid-template-columns: 1fr 1fr !important;
+                gap: .16rem !important;
+            }}
+
+            .rf-field {{
+                padding: .18rem .24rem !important;
+                border-radius: 8px !important;
+            }}
+
+            .rf-label {{
+                font-size: .46rem !important;
+                line-height: .95 !important;
+                letter-spacing: .035em !important;
+            }}
+
+            .rf-value {{
+                font-size: .58rem !important;
+                line-height: 1.05 !important;
+                margin-top: .05rem !important;
+            }}
+
+            .rf-task-header {{
+                margin-bottom: .16rem !important;
+                gap: .18rem !important;
+            }}
+
+            .rf-task-pk {{
+                font-size: .54rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .rf-task-counter {{
+                font-size: .54rem !important;
+                padding: .08rem .25rem !important;
+                border-radius: 999px !important;
+            }}
+
+            .rf-task-row {{
+                grid-template-columns: 1fr 1fr !important;
+                gap: .20rem !important;
+            }}
+
+            .rf-task-big-label {{
+                font-size: .46rem !important;
+                line-height: 1.0 !important;
+            }}
+
+            .rf-task-big-value {{
+                font-size: .86rem !important;
+                line-height: .98 !important;
+                margin-bottom: .14rem !important;
+            }}
+
+            .rf-location-value {{ font-size: 1.02rem !important; }}
+            .rf-qty-value {{ font-size: .82rem !important; }}
+
+            .rf-task-product {{
+                font-size: .62rem !important;
+                line-height: 1.05 !important;
+                margin: .02rem 0 .18rem 0 !important;
+            }}
+
+            .rf-picking-card {{ border-left-width: 4px !important; }}
+            .rf-picking-title {{ font-size: .82rem !important; margin-bottom: .05rem !important; }}
+            .rf-picking-sub {{ font-size: .58rem !important; line-height: 1.08 !important; }}
+            .rf-pill-row {{ gap:.12rem !important; margin-top:.28rem !important; }}
+            .rf-pill {{
+                font-size: .50rem !important;
+                padding: .12rem .26rem !important;
+                border-radius: 999px !important;
+            }}
+
+            .rf-home-hero {{
+                min-height: calc(100vh - 3.1rem) !important;
+                padding: .52rem !important;
+                border-radius: 16px !important;
+            }}
+
+            .rf-home-logo {{
+                width: 58px !important;
+                height: 58px !important;
+                margin-bottom: .30rem !important;
+            }}
+
+            .rf-home-logo img {{ width: 58px !important; }}
+
+            .rf-home-title {{
+                font-size: 1.14rem !important;
+                line-height: .98 !important;
+            }}
+
+            .rf-home-subtitle {{
+                font-size: .58rem !important;
+                margin-top: .14rem !important;
+                margin-bottom: .35rem !important;
+            }}
+
+            .rf-home-grid {{
+                gap: .14rem !important;
+                margin: .12rem auto .30rem auto !important;
+                max-width: 260px !important;
+            }}
+
+            .rf-home-chip {{
+                font-size: .50rem !important;
+                padding: .12rem .26rem !important;
+            }}
+
+            .rf-home-help {{
+                font-size: .54rem !important;
+                line-height: 1.12 !important;
+                max-width: 250px !important;
+            }}
+
+            /* Login RF ultra compacto. */
+            .rf-login-brand {{
+                margin-bottom: .40rem !important;
+            }}
+
+            .rf-login-brand img {{
+                width: 58px !important;
+            }}
+
+            .rf-login-title {{
+                font-size: 1.08rem !important;
+                line-height: 1.0 !important;
+                margin-top: .22rem !important;
+            }}
+
+            .rf-login-subtitle {{
+                font-size: .56rem !important;
+                line-height: 1.08 !important;
+                margin-top: .12rem !important;
+            }}
+
+            div[data-testid="stVerticalBlockBorderWrapper"] {{
+                width: min(82vw, 300px) !important;
+                max-width: 300px !important;
+                padding: .55rem .55rem .50rem .55rem !important;
+                border-radius: 16px !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }}
+
+            /* Sidebar RF para pantalla 9x5: angosto y funcional. */
+            section[data-testid="stSidebar"] {{
+                width: min(56vw, 230px) !important;
+                min-width: min(56vw, 230px) !important;
+                max-width: min(56vw, 230px) !important;
+            }}
+
+            section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+                padding: .42rem .38rem .55rem .38rem !important;
+            }}
+
+            .rf-sidebar-logo {{
+                padding: .18rem .05rem .25rem .05rem !important;
+                margin-bottom: .02rem !important;
+            }}
+
+            .rf-sidebar-logo img {{ width: 48px !important; }}
+
+            section[data-testid="stSidebar"] details {{
+                margin: .04rem 0 .08rem 0 !important;
+            }}
+
+            section[data-testid="stSidebar"] details summary {{
+                padding: .05rem .02rem .04rem .02rem !important;
+                font-size: .55rem !important;
+                line-height: 1.0 !important;
+                letter-spacing: .055em !important;
+            }}
+
+            section[data-testid="stSidebar"] .stButton > button {{
+                min-height: 1.42rem !important;
+                height: 1.42rem !important;
+                padding: .04rem .20rem .04rem .70rem !important;
+                font-size: .60rem !important;
+                border-radius: 5px !important;
+            }}
+
+            .rf-session-simple {{
+                margin: .36rem .08rem 0 .08rem !important;
+                padding-top: .28rem !important;
+            }}
+
+            .rf-session-label {{ font-size: .48rem !important; }}
+            .rf-session-user {{ font-size: .60rem !important; line-height: 1.05 !important; }}
+            .rf-session-role {{ font-size: .52rem !important; }}
+
+            [data-testid="stDataFrame"] {{
+                border-radius: 10px !important;
+                font-size: .58rem !important;
+            }}
+
+            .stAlert {{
+                padding: .25rem .35rem !important;
+                font-size: .60rem !important;
+            }}
+        }}
+
+        @media (max-height: 560px) {{
+            .block-container {{
+                padding-top: 2.30rem !important;
+                padding-bottom: .25rem !important;
+            }}
+
+            h1 {{ font-size: .96rem !important; }}
+            .rf-card, .rf-picking-card, .rf-task-main {{ margin-bottom: .20rem !important; }}
+            .stTextArea textarea {{ min-height: 1.80rem !important; height: 1.80rem !important; }}
+            .rf-task-big-value {{ font-size: .78rem !important; }}
+            .rf-location-value {{ font-size: .94rem !important; }}
+            .rf-qty-value {{ font-size: .76rem !important; }}
+        }}
+
         </style>
         """,
         unsafe_allow_html=True,
