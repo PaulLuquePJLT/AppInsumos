@@ -120,6 +120,7 @@ def _clear_rf_session_state() -> None:
         "rf_stock_query",
         "rf_stock_ubicacion",
         "rf_last_activity_ts",
+        "_rf_idle_watchdog_loaded",
     ]:
         if key in st.session_state:
             del st.session_state[key]
@@ -165,7 +166,16 @@ def _enforce_rf_idle_timeout() -> bool:
 
 
 def _render_rf_idle_timeout_script(timeout_seconds: int = RF_IDLE_TIMEOUT_SECONDS) -> None:
-    """Watchdog en navegador para cerrar sesión incluso si el equipo queda en segundo plano."""
+    """Watchdog en navegador para cerrar sesión incluso si el equipo queda en segundo plano.
+
+    Optimización: se inyecta una sola vez por sesión RF. Antes se insertaba
+    en cada rerun y acumulaba listeners en el navegador, lo que podía hacer
+    más lenta la respuesta al tocar funciones del menú.
+    """
+    if st.session_state.get("_rf_idle_watchdog_loaded"):
+        return
+    st.session_state["_rf_idle_watchdog_loaded"] = True
+
     timeout_ms = int(timeout_seconds * 1000)
     html = """
     <script>
@@ -350,6 +360,8 @@ def render_login() -> None:
             st.rerun()
 
 def _set_page(page_name: str) -> None:
+    # Callback liviano: solo cambia estado. No llama st.rerun(), porque
+    # st.button ya provoca un rerun automáticamente. Evita doble rerun.
     st.session_state.rf_page = page_name
     st.session_state.rf_collapse_sidebar = True
 
@@ -359,15 +371,19 @@ def _toggle_group(group_key: str) -> None:
 
 
 def _render_auto_collapse_sidebar() -> None:
-    """Cierra el sidebar en móvil después de elegir una función."""
+    """Cierra el sidebar en móvil después de elegir una función.
+
+    Optimizado para no dejar un intervalo largo corriendo. Antes hacía hasta 18
+    intentos cada 120 ms; ahora hace pocos intentos rápidos y termina.
+    """
     if not st.session_state.pop("rf_collapse_sidebar", False):
         return
 
     html = """
     <script>
     (function() {
+        const parentDoc = window.parent.document;
         function closeSidebarAttempt() {
-            const doc = window.parent.document;
             const candidates = [];
             const selectors = [
                 '[data-testid="stSidebarCollapseButton"] button',
@@ -378,9 +394,9 @@ def _render_auto_collapse_sidebar() -> None:
                 'button[title="Collapse sidebar"]'
             ];
             selectors.forEach(function(selector) {
-                doc.querySelectorAll(selector).forEach(function(el) { candidates.push(el); });
+                parentDoc.querySelectorAll(selector).forEach(function(el) { candidates.push(el); });
             });
-            Array.from(doc.querySelectorAll('button')).forEach(function(btn) {
+            Array.from(parentDoc.querySelectorAll('button')).forEach(function(btn) {
                 const label = (btn.getAttribute('aria-label') || btn.getAttribute('title') || btn.innerText || '').toLowerCase();
                 const text = (btn.innerText || '').trim();
                 if (
@@ -405,13 +421,9 @@ def _render_auto_collapse_sidebar() -> None:
             }
             return false;
         }
-        let attempts = 0;
-        const timer = setInterval(function() {
-            attempts += 1;
-            if (closeSidebarAttempt() || attempts >= 18) {
-                clearInterval(timer);
-            }
-        }, 120);
+        [20, 90, 180, 300, 450].forEach(function(delay) {
+            setTimeout(closeSidebarAttempt, delay);
+        });
     })();
     </script>
     """
@@ -420,21 +432,43 @@ def _render_auto_collapse_sidebar() -> None:
 def render_sidebar() -> None:
     render_rf_logo_sidebar()
 
+    current_page = st.session_state.get("rf_page", "Inicio")
+
     with st.sidebar.expander("▣ MOVIMIENTOS", expanded=False):
-        if st.button("↧ Ingresos", use_container_width=True, type="primary" if st.session_state.rf_page == "Ingresos" else "secondary", key="rf_nav_ingresos"):
-            _set_page("Ingresos")
-            st.rerun()
-        if st.button("▥ Picking", use_container_width=True, type="primary" if st.session_state.rf_page == "Picking" else "secondary", key="rf_nav_picking"):
-            _set_page("Picking")
-            st.rerun()
-        if st.button("⇄ Transferencia", use_container_width=True, type="primary" if st.session_state.rf_page == "Transferencia" else "secondary", key="rf_nav_transferencia"):
-            _set_page("Transferencia")
-            st.rerun()
+        st.button(
+            "↧ Ingresos",
+            use_container_width=True,
+            type="primary" if current_page == "Ingresos" else "secondary",
+            key="rf_nav_ingresos",
+            on_click=_set_page,
+            args=("Ingresos",),
+        )
+        st.button(
+            "▥ Picking",
+            use_container_width=True,
+            type="primary" if current_page == "Picking" else "secondary",
+            key="rf_nav_picking",
+            on_click=_set_page,
+            args=("Picking",),
+        )
+        st.button(
+            "⇄ Transferencia",
+            use_container_width=True,
+            type="primary" if current_page == "Transferencia" else "secondary",
+            key="rf_nav_transferencia",
+            on_click=_set_page,
+            args=("Transferencia",),
+        )
 
     with st.sidebar.expander("⌕ CONSULTAS", expanded=False):
-        if st.button("⌕ Stock", use_container_width=True, type="primary" if st.session_state.rf_page == "Stock" else "secondary", key="rf_nav_stock"):
-            _set_page("Stock")
-            st.rerun()
+        st.button(
+            "⌕ Stock",
+            use_container_width=True,
+            type="primary" if current_page == "Stock" else "secondary",
+            key="rf_nav_stock",
+            on_click=_set_page,
+            args=("Stock",),
+        )
 
     user = current_user()
     display_name = f"{user.get('nombres','')} {user.get('apellidos','')}".strip() or user.get("usuario_login", "")
