@@ -1137,6 +1137,185 @@ def apply_rf_theme(login: bool = False) -> None:
             .rf-location-value {{ font-size: .98rem !important; }}
             .rf-qty-value {{ font-size: .80rem !important; }}
         }}
+
+
+        /* ==========================================================
+           FIX RF: compactar fondo gris de inputs y evitar corte del texto
+           ========================================================== */
+        div[data-testid="stTextInput"],
+        div[data-testid="stNumberInput"],
+        div[data-testid="stDateInput"],
+        div[data-testid="stTextArea"],
+        div[data-testid="stSelectbox"] {{
+            margin-bottom: .18rem !important;
+        }}
+
+        div[data-testid="stTextInput"] div[data-baseweb="input"],
+        div[data-testid="stNumberInput"] div[data-baseweb="input"],
+        div[data-testid="stDateInput"] div[data-baseweb="input"],
+        div[data-baseweb="input"] {{
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            border-radius: 10px !important;
+            background: rgba(248,251,252,.98) !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            box-shadow: 0 4px 10px rgba(20,37,52,.04) !important;
+            overflow: hidden !important;
+        }}
+
+        div[data-testid="stTextInput"] div[data-baseweb="input"] > div,
+        div[data-testid="stNumberInput"] div[data-baseweb="input"] > div,
+        div[data-testid="stDateInput"] div[data-baseweb="input"] > div,
+        div[data-baseweb="input"] > div {{
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            background: transparent !important;
+        }}
+
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stDateInput"] input,
+        div[data-baseweb="input"] input {{
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            font-size: .78rem !important;
+            line-height: 1 !important;
+            padding: .08rem .42rem !important;
+            background: transparent !important;
+        }}
+
+        div[data-testid="stTextArea"] div[data-baseweb="textarea"],
+        div[data-baseweb="textarea"] {{
+            min-height: 3.05rem !important;
+            height: 3.05rem !important;
+            border-radius: 10px !important;
+            background: rgba(248,251,252,.98) !important;
+            border: 1px solid rgba(220,231,234,.95) !important;
+            box-shadow: 0 4px 10px rgba(20,37,52,.04) !important;
+            overflow: hidden !important;
+        }}
+
+        div[data-testid="stTextArea"] textarea,
+        div[data-baseweb="textarea"] textarea {{
+            min-height: 3.05rem !important;
+            height: 3.05rem !important;
+            font-size: .78rem !important;
+            line-height: 1.1 !important;
+            padding: .34rem .42rem !important;
+            background: transparent !important;
+        }}
+
+        div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+        div[data-baseweb="select"] > div {{
+            min-height: 2.05rem !important;
+            height: 2.05rem !important;
+            font-size: .78rem !important;
+            border-radius: 10px !important;
+            background: rgba(248,251,252,.98) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            font-size: .70rem !important;
+            line-height: 1 !important;
+            white-space: nowrap !important;
+            min-height: 1.70rem !important;
+            height: 1.70rem !important;
+            padding-left: .70rem !important;
+            padding-right: .18rem !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button p,
+        section[data-testid="stSidebar"] .stButton > button div,
+        section[data-testid="stSidebar"] .stButton > button span {{
+            font-size: .70rem !important;
+            line-height: 1 !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }}
+
+        @media (max-width: 900px) {{
+            div[data-testid="stTextInput"] div[data-baseweb="input"],
+            div[data-testid="stNumberInput"] div[data-baseweb="input"],
+            div[data-testid="stDateInput"] div[data-baseweb="input"],
+            div[data-baseweb="input"] {{
+                min-height: 1.48rem !important;
+                height: 1.48rem !important;
+                border-radius: 8px !important;
+            }}
+
+            div[data-testid="stTextInput"] div[data-baseweb="input"] > div,
+            div[data-testid="stNumberInput"] div[data-baseweb="input"] > div,
+            div[data-testid="stDateInput"] div[data-baseweb="input"] > div,
+            div[data-baseweb="input"] > div {{
+                min-height: 1.48rem !important;
+                height: 1.48rem !important;
+            }}
+
+            div[data-testid="stTextInput"] input,
+            div[data-testid="stNumberInput"] input,
+            div[data-testid="stDateInput"] input,
+            div[data-baseweb="input"] input {{
+                min-height: 1.48rem !important;
+                height: 1.48rem !important;
+                font-size: .64rem !important;
+                padding: .04rem .30rem !important;
+            }}
+
+            div[data-testid="stTextArea"] div[data-baseweb="textarea"],
+            div[data-baseweb="textarea"] {{
+                min-height: 2.05rem !important;
+                height: 2.05rem !important;
+                border-radius: 8px !important;
+            }}
+
+            div[data-testid="stTextArea"] textarea,
+            div[data-baseweb="textarea"] textarea {{
+                min-height: 2.05rem !important;
+                height: 2.05rem !important;
+                font-size: .64rem !important;
+                padding: .25rem .30rem !important;
+            }}
+
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+            div[data-baseweb="select"] > div {{
+                min-height: 1.48rem !important;
+                height: 1.48rem !important;
+                font-size: .64rem !important;
+                border-radius: 8px !important;
+            }}
+
+            div[data-baseweb="select"] span,
+            div[data-baseweb="select"] div {{
+                font-size: .64rem !important;
+                line-height: 1 !important;
+            }}
+
+            section[data-testid="stSidebar"] .stButton > button {{
+                font-size: .54rem !important;
+                min-height: 1.34rem !important;
+                height: 1.34rem !important;
+                padding-left: .48rem !important;
+                padding-right: .12rem !important;
+                letter-spacing: -.01em !important;
+                white-space: nowrap !important;
+            }}
+
+            section[data-testid="stSidebar"] .stButton > button p,
+            section[data-testid="stSidebar"] .stButton > button div,
+            section[data-testid="stSidebar"] .stButton > button span {{
+                font-size: .54rem !important;
+                line-height: 1 !important;
+                white-space: nowrap !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+            }}
+
+            section[data-testid="stSidebar"] details summary {{
+                font-size: .54rem !important;
+                letter-spacing: .045em !important;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
