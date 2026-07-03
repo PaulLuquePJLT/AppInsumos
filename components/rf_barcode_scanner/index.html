@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<style>
+  html, body { margin:0; padding:0; background:#071f27; font-family: Arial, sans-serif; overflow:hidden; }
+  .wrap { position:relative; width:100%; height:250px; overflow:hidden; border-radius:14px; background:#071f27; }
+  video { width:100%; height:100%; object-fit:cover; transform: translateZ(0); }
+  canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .scanline { position:absolute; left:9%; right:9%; top:50%; height:2px; background:#22c55e; box-shadow:0 0 16px #22c55e; animation: scan 1.15s linear infinite; }
+  .corner { position:absolute; width:42px; height:42px; border-color:#22c55e; border-style:solid; filter: drop-shadow(0 0 8px #22c55e); }
+  .tl { left:10%; top:20%; border-width:3px 0 0 3px; }
+  .tr { right:10%; top:20%; border-width:3px 3px 0 0; }
+  .bl { left:10%; bottom:20%; border-width:0 0 3px 3px; }
+  .br { right:10%; bottom:20%; border-width:0 3px 3px 0; }
+  .status { position:absolute; left:8px; right:8px; bottom:8px; padding:5px 7px; border-radius:10px; background:rgba(0,0,0,.52); color:#d1fae5; font-size:12px; text-align:center; }
+  .ok { color:#22c55e; font-weight:700; }
+  .err { color:#fbbf24; }
+  @keyframes scan { 0% { top:24%; } 50% { top:76%; } 100% { top:24%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+  <div class="scanline"></div>
+  <div id="status" class="status">Iniciando cámara posterior...</div>
+</div>
+<script src="https://unpkg.com/@zxing/browser@latest"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+let emitted = false;
+let stream = null;
+let lastValue = null;
+
+function sendMessage(type, data) {
+  window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, '*');
+}
+function componentReady() { sendMessage('streamlit:componentReady', { apiVersion: 1 }); }
+function setFrameHeight(height) { sendMessage('streamlit:setFrameHeight', { height }); }
+function setComponentValue(value) { sendMessage('streamlit:setComponentValue', { value, dataType: 'json' }); }
+function setStatus(msg, cls='') { statusEl.innerHTML = msg; statusEl.className = 'status ' + cls; }
+function fitCanvas() { canvas.width = video.clientWidth || 640; canvas.height = video.clientHeight || 360; }
+function drawGreenBox(box) {
+  fitCanvas();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!box) return;
+  ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 4; ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 12;
+  const sx = canvas.width / (video.videoWidth || canvas.width);
+  const sy = canvas.height / (video.videoHeight || canvas.height);
+  ctx.strokeRect(box.x * sx, box.y * sy, box.width * sx, box.height * sy);
+}
+function stopCamera() {
+  try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch(e) {}
+}
+function emit(code) {
+  code = String(code || '').trim();
+  if (emitted || !code || code === lastValue) return;
+  emitted = true;
+  lastValue = code;
+  setStatus('Código detectado: <span class="ok">' + code + '</span>', 'ok');
+  stopCamera();
+  setComponentValue({ code: code, ts: Date.now() });
+}
+async function getBackCameraStream() {
+  const constraints = {
+    audio: false,
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30 },
+      advanced: [{ focusMode: 'continuous' }]
+    }
+  };
+  try { return await navigator.mediaDevices.getUserMedia(constraints); }
+  catch (e) { return await navigator.mediaDevices.getUserMedia({ audio:false, video: { facingMode: 'environment' } }); }
+}
+async function runNativeDetector() {
+  const formats = ['ean_13','ean_8','code_128','code_39','code_93','itf','codabar','upc_a','upc_e','qr_code','data_matrix'];
+  const detector = new BarcodeDetector({ formats });
+  async function loop() {
+    if (emitted) return;
+    try {
+      const codes = await detector.detect(video);
+      if (codes && codes.length) {
+        const c = codes[0];
+        drawGreenBox(c.boundingBox || null);
+        emit(c.rawValue);
+        return;
+      }
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    } catch(e) {}
+    requestAnimationFrame(loop);
+  }
+  loop();
+}
+async function runZXingFallback() {
+  if (!window.ZXingBrowser) throw new Error('ZXing no disponible');
+  const reader = new ZXingBrowser.BrowserMultiFormatReader();
+  setStatus('Escaneando con motor compatible...');
+  await reader.decodeFromVideoElement(video, (result, err, controls) => {
+    if (result && !emitted) {
+      drawGreenBox({ x: canvas.width*.10, y: canvas.height*.28, width: canvas.width*.80, height: canvas.height*.44 });
+      emit(result.getText());
+      try { controls.stop(); } catch(e) {}
+    }
+  });
+}
+async function start() {
+  componentReady();
+  setFrameHeight(268);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('La cámara no está disponible en este navegador.', 'err'); return;
+  }
+  try {
+    stream = await getBackCameraStream();
+    video.srcObject = stream;
+    await video.play();
+    fitCanvas();
+    setStatus('Apunta el código dentro de las guías verdes.');
+    if ('BarcodeDetector' in window) await runNativeDetector();
+    else await runZXingFallback();
+  } catch(e) {
+    console.error(e);
+    setStatus('No se pudo iniciar la cámara. Verifica permisos HTTPS/cámara.', 'err');
+  }
+}
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('beforeunload', stopCamera);
+start();
+</script>
+</body>
+</html>
