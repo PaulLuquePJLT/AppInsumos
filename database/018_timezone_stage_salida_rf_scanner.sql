@@ -5,13 +5,15 @@ SET XACT_ABORT ON;
    018 - Zona horaria Bogotá/Lima, stage salida y soporte RF
    ================================================================ */
 
-IF OBJECT_ID('dbo.fn_now_bogota_lima', 'FN') IS NOT NULL
-BEGIN
-    DROP FUNCTION dbo.fn_now_bogota_lima;
-END;
+/* ==========================================================
+   Crear o actualizar función fecha/hora Bogotá - Lima - Perú
+   IMPORTANTE:
+   No usar DROP FUNCTION porque la función puede estar referenciada
+   por DEFAULT CONSTRAINTS en pedidos, movimientos, picking, etc.
+   ========================================================== */
 
 EXEC(N'
-CREATE FUNCTION dbo.fn_now_bogota_lima()
+CREATE OR ALTER FUNCTION dbo.fn_now_bogota_lima()
 RETURNS DATETIME2(0)
 AS
 BEGIN
