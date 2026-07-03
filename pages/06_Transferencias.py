@@ -1,4 +1,5 @@
 from datetime import datetime
+from src.time_utils import local_now
 
 import pandas as pd
 import streamlit as st
@@ -263,7 +264,7 @@ def limpiar_transferencia():
 st.subheader("Datos de cabecera")
 col1, col2 = st.columns([1, 3])
 with col1:
-    fecha_movimiento = st.text_input("Fecha movimiento", value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), disabled=True)
+    fecha_movimiento = st.text_input("Fecha movimiento", value=local_now().strftime("%Y-%m-%d %H:%M:%S"), disabled=True)
 with col2:
     texto_cabecera = st.text_input("Texto de cabecera", placeholder="Opcional")
 
@@ -322,7 +323,7 @@ if verificar or confirmar:
         if confirmar:
             try:
                 id_movimiento = registrar_transferencia_masiva(
-                    fecha_movimiento=datetime.now(),
+                    fecha_movimiento=local_now(),
                     texto_cabecera=texto_cabecera,
                     id_usuario=current_user_id(),
                     items=valid,
