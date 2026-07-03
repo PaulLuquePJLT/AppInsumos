@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from src.ui_filters import filter_bulk_dataframe
+
 from src.bulk_utils import (
     add_error,
     build_excel_template,
@@ -259,7 +261,12 @@ with tab_mod_masiva:
     if proveedores.empty:
         st.info("No hay proveedores registrados.")
     else:
-        editable = proveedores[[
+        proveedores_filtrados = filter_bulk_dataframe(
+            proveedores,
+            key_prefix="proveedores_mod_masiva",
+            text_columns=["ruc", "razon_social", "rubro_proveedor", "contacto", "correo", "pais", "ciudad", "estado"],
+        )
+        editable = proveedores_filtrados[[
             "id_proveedor", "ruc", "razon_social", "rubro_proveedor", "contacto", "nro_telefono",
             "correo", "direccion", "pais", "ciudad", "estado", "activo"
         ]].copy()
