@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+
+from src.time_utils import local_today
 
 from src.movimientos import (
     atender_tareas_picking,
@@ -65,7 +66,7 @@ def confirmar_transferencia_rf(
 ) -> int:
     """Registra una transferencia RF de una sola posición."""
     return registrar_transferencia_masiva(
-        fecha_movimiento=date.today(),
+        fecha_movimiento=local_today(),
         texto_cabecera="Transferencia RF",
         id_usuario=int(id_usuario),
         items=[
