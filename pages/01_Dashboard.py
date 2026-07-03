@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from src.time_utils import local_today
 
 import pandas as pd
 import plotly.express as px
@@ -111,7 +112,7 @@ if not mov.empty and mov["fecha"].notna().any():
     available_min_date = min(mov["fecha"].dropna())
     min_date = max(available_min_date, max_date - timedelta(days=1))
 else:
-    max_date = date.today()
+    max_date = local_today()
     available_min_date = max_date - timedelta(days=365)
     min_date = max_date - timedelta(days=1)
 
