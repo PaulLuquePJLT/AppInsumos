@@ -140,6 +140,7 @@ def validar_ubicaciones_excel(df: pd.DataFrame):
 tabs = st.tabs([
     "Agregar zona", "Modificar / eliminar zona", "Carga masiva zonas",
     "Agregar ubicación", "Modificar / eliminar ubicación", "Carga masiva ubicaciones", "Listado",
+    "Modif. masiva zonas", "Modif. masiva ubicaciones",
 ])
 
 with tabs[0]:
@@ -301,3 +302,72 @@ with tabs[6]:
     st.dataframe(zonas_todas, use_container_width=True, hide_index=True)
     st.subheader("Ubicaciones")
     st.dataframe(ubicaciones, use_container_width=True, hide_index=True)
+
+
+with tabs[7]:
+    st.write("Edita múltiples zonas y presiona Guardar modificación masiva.")
+    if zonas_todas.empty:
+        st.info("No hay zonas registradas.")
+    else:
+        editable = zonas_todas[["id_zona", "codigo_zona", "nombre_zona", "descripcion", "activo"]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_zona"],
+            key="zonas_modificacion_masiva_editor",
+            column_config={"activo": st.column_config.CheckboxColumn("activo")},
+        )
+        if st.button("Guardar modificación masiva zonas", type="primary", use_container_width=True, key="zonas_modificacion_masiva_guardar"):
+            try:
+                for _, row in edited_mass.iterrows():
+                    update_zona(int(row["id_zona"]), row.get("codigo_zona"), row.get("nombre_zona"), row.get("descripcion"), int(bool(row.get("activo"))))
+                st.session_state["msg_ubicacion"] = f"Se actualizaron {len(edited_mass)} zonas correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de zonas.")
+                st.exception(exc)
+
+with tabs[8]:
+    st.write("Edita múltiples ubicaciones y presiona Guardar modificación masiva.")
+    if ubicaciones.empty:
+        st.info("No hay ubicaciones registradas.")
+    elif zonas.empty:
+        st.warning("No hay zonas activas para actualizar ubicaciones.")
+    else:
+        editable = ubicaciones[[
+            "id_ubicacion", "codigo_ubicacion", "codigo_zona", "tipo_ubicacion", "pasillo", "rack", "nivel",
+            "posicion", "capacidad_maxima", "secuencia", "es_surtible", "es_stage", "activo"
+        ]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_ubicacion"],
+            key="ubicaciones_modificacion_masiva_editor",
+            column_config={
+                "es_surtible": st.column_config.CheckboxColumn("es_surtible"),
+                "es_stage": st.column_config.CheckboxColumn("es_stage"),
+                "activo": st.column_config.CheckboxColumn("activo"),
+            },
+        )
+        if st.button("Guardar modificación masiva ubicaciones", type="primary", use_container_width=True, key="ubicaciones_modificacion_masiva_guardar"):
+            try:
+                valid_zonas = set(zonas["codigo_zona"].astype(str).str.upper())
+                for _, row in edited_mass.iterrows():
+                    codigo_zona = clean_upper(row.get("codigo_zona"))
+                    if codigo_zona not in valid_zonas:
+                        raise ValueError(f"Ubicación {row.get('codigo_ubicacion')}: zona no válida: {codigo_zona}")
+                    update_ubicacion(
+                        int(row["id_ubicacion"]), row.get("codigo_ubicacion"), _zona_id(codigo_zona), row.get("tipo_ubicacion"),
+                        row.get("pasillo"), row.get("rack"), row.get("nivel"), row.get("posicion"),
+                        float(row.get("capacidad_maxima") or 0), int(float(row.get("secuencia") or 999999)),
+                        int(bool(row.get("es_surtible"))), int(bool(row.get("es_stage"))), int(bool(row.get("activo"))),
+                    )
+                st.session_state["msg_ubicacion"] = f"Se actualizaron {len(edited_mass)} ubicaciones correctamente."
+                load_ubicaciones_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de ubicaciones.")
+                st.exception(exc)
