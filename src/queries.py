@@ -1296,7 +1296,7 @@ def update_proveedor(
             ciudad = :ciudad,
             estado = :estado,
             activo = :activo,
-            fecha_actualizacion = SYSDATETIME()
+            fecha_actualizacion = dbo.fn_now_bogota_lima()
         WHERE id_proveedor = :id_proveedor
         """,
         {
@@ -1322,7 +1322,7 @@ def delete_proveedor(id_proveedor):
         UPDATE proveedores
         SET activo = 0,
             estado = 'INACTIVO',
-            fecha_actualizacion = SYSDATETIME()
+            fecha_actualizacion = dbo.fn_now_bogota_lima()
         WHERE id_proveedor = :id_proveedor
         """,
         {"id_proveedor": int(id_proveedor)},
