@@ -259,9 +259,10 @@ def validar_productos_excel(df: pd.DataFrame):
     return pd.DataFrame(preview_rows), rows
 
 
-tab_crear, tab_editar, tab_carga, tab_listado = st.tabs([
+tab_crear, tab_editar, tab_mod_masiva, tab_carga, tab_listado = st.tabs([
     "Agregar",
     "Modificar / eliminar",
+    "Modificación masiva",
     "Carga masiva",
     "Listado",
 ])
@@ -430,6 +431,68 @@ with tab_editar:
                 st.error("No se pudo desactivar el producto.")
                 st.exception(exc)
 
+
+
+with tab_mod_masiva:
+    st.write("Edita múltiples productos en la tabla y presiona Guardar modificación masiva.")
+    if productos.empty:
+        st.info("No hay productos registrados.")
+    else:
+        editable = productos[[
+            "id_producto", "sku", "nombre_producto", "descripcion", "ean_serie", "flag_aplica_ean",
+            "precio_unitario", "vida_util_cuenta_dias", "nombre_categoria", "codigo_unidad",
+            "stock_minimo", "stock_maximo", "requiere_lote", "activo"
+        ]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_producto"],
+            key="productos_modificacion_masiva_editor",
+            column_config={
+                "requiere_lote": st.column_config.CheckboxColumn("requiere_lote"),
+                "activo": st.column_config.CheckboxColumn("activo"),
+            },
+        )
+        if st.button("Guardar modificación masiva", type="primary", use_container_width=True, key="productos_modificacion_masiva_guardar"):
+            try:
+                if categorias.empty or unidades.empty:
+                    st.error("Debes tener categorías y unidades activas para actualizar productos.")
+                    st.stop()
+                for _, row in edited_mass.iterrows():
+                    flag = normalizar_flag_ean(row.get("flag_aplica_ean", "NO"))
+                    ean = normalizar_ean_excel(row.get("ean_serie", ""))
+                    ean_error = validar_ean13(flag, ean)
+                    if ean_error:
+                        raise ValueError(f"Producto {row.get('sku')}: {ean_error}")
+                    categoria_nombre = clean_text(row.get("nombre_categoria"))
+                    unidad_codigo = clean_upper(row.get("codigo_unidad"))
+                    if categoria_nombre not in set(categorias["nombre_categoria"].astype(str)):
+                        raise ValueError(f"Producto {row.get('sku')}: categoría no válida: {categoria_nombre}")
+                    if unidad_codigo not in set(unidades["codigo_unidad"].astype(str).str.upper()):
+                        raise ValueError(f"Producto {row.get('sku')}: unidad no válida: {unidad_codigo}")
+                    update_producto(
+                        int(row["id_producto"]),
+                        row.get("sku"),
+                        row.get("nombre_producto"),
+                        row.get("descripcion"),
+                        _categoria_id(categoria_nombre),
+                        _unidad_id(unidad_codigo),
+                        float(row.get("stock_minimo") or 0),
+                        float(row.get("stock_maximo") or 0),
+                        int(bool(row.get("requiere_lote"))),
+                        int(bool(row.get("activo"))),
+                        float(row.get("precio_unitario") or 0),
+                        ean,
+                        flag,
+                        int(float(row.get("vida_util_cuenta_dias") or 0)),
+                    )
+                st.session_state["msg_producto"] = f"Se actualizaron {len(edited_mass)} productos correctamente."
+                load_productos_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de productos.")
+                st.exception(exc)
 
 with tab_carga:
     st.write("Descarga la plantilla, complétala y luego carga el archivo para validarlo.")
