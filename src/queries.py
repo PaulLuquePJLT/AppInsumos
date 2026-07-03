@@ -1112,18 +1112,20 @@ def insert_unidad(codigo_unidad, nombre_unidad):
     )
 
 
-def update_unidad(id_unidad, codigo_unidad, nombre_unidad):
+def update_unidad(id_unidad, codigo_unidad, nombre_unidad, activo=1):
     execute_statement(
         """
         UPDATE unidades_medida
         SET codigo_unidad = :codigo_unidad,
-            nombre_unidad = :nombre_unidad
+            nombre_unidad = :nombre_unidad,
+            activo = :activo
         WHERE id_unidad = :id_unidad
         """,
         {
             "id_unidad": int(id_unidad),
             "codigo_unidad": clean_upper(codigo_unidad),
             "nombre_unidad": clean_text(nombre_unidad),
+            "activo": clean_bool(activo),
         },
     )
 
@@ -1394,58 +1396,82 @@ def get_pedidos_resumen(
     fecha_fin=None,
     estado: str | None = None,
 ):
-    """Consulta resumen de pedidos con filtros en SQL.
+    """Consulta resumen de pedidos directamente desde tablas.
 
-    - solo_hoy=True fuerza fecha_pedido = fecha local Bogotá/Lima.
-    - Si solo_hoy=False, usa fecha_inicio y fecha_fin cuando se informan.
-    - estado vacío o None equivale a todos.
+    Evita depender de una vista que puede estar desactualizada y usa filtros
+    de fecha consistentes con Bogotá/Lima.
     """
     where = []
     params = {}
 
     if solo_hoy:
-        where.append("fecha_pedido = CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), '-05:00') AS DATE)")
+        where.append("p.fecha_pedido = CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), '-05:00') AS DATE)")
     else:
         if fecha_inicio is not None:
-            where.append("fecha_pedido >= :fecha_inicio")
+            where.append("p.fecha_pedido >= :fecha_inicio")
             params["fecha_inicio"] = fecha_inicio
         if fecha_fin is not None:
-            where.append("fecha_pedido <= :fecha_fin")
+            where.append("p.fecha_pedido <= :fecha_fin")
             params["fecha_fin"] = fecha_fin
 
     if solo_creados:
-        where.append("estado = 'CREADO'")
+        where.append("p.estado = 'CREADO'")
     elif estado:
-        where.append("estado = :estado")
+        where.append("p.estado = :estado")
         params["estado"] = estado
 
     where_sql = "WHERE " + " AND ".join(where) if where else ""
 
     return read_dataframe(f"""
         SELECT
-            id_pedido,
-            nro_pedido,
-            fecha_pedido,
-            fecha_esperada_atencion,
-            id_cuenta,
-            codigo_cuenta,
-            nombre_cuenta,
-            solicitante,
-            responsable_cuenta,
-            texto_cabecera,
-            qty_total,
-            estado,
-            lineas,
-            cantidad_pendiente_picking,
-            cantidad_pendiente_atencion
-        FROM dbo.vw_pedidos_resumen
+            p.id_pedido,
+            p.nro_pedido,
+            p.fecha_pedido,
+            p.fecha_esperada_atencion,
+            p.id_cuenta,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.solicitante,
+            p.responsable_cuenta,
+            p.texto_cabecera,
+            CAST(ISNULL(SUM(pd.cantidad_pedida), 0) AS DECIMAL(18,2)) AS qty_total,
+            p.estado,
+            COUNT(pd.id_pedido_detalle) AS lineas,
+            CAST(ISNULL(SUM(pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_picking,
+            CAST(ISNULL(SUM(pd.cantidad_asignada - pd.cantidad_atendida - pd.cantidad_cancelada), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_atencion
+        FROM pedidos p
+        INNER JOIN cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
+        LEFT JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
         {where_sql}
-        ORDER BY fecha_pedido DESC, nro_pedido DESC
+        GROUP BY
+            p.id_pedido,
+            p.nro_pedido,
+            p.fecha_pedido,
+            p.fecha_esperada_atencion,
+            p.id_cuenta,
+            c.codigo_cuenta,
+            c.nombre_cuenta,
+            p.solicitante,
+            p.responsable_cuenta,
+            p.texto_cabecera,
+            p.estado
+        ORDER BY p.fecha_pedido DESC, p.nro_pedido DESC
     """, params)
 
 
-def get_pedidos_pendientes_detalle(solo_hoy: bool = True):
-    date_filter = "AND p.fecha_pedido = CAST(SYSDATETIME() AS DATE)" if solo_hoy else ""
+def get_pedidos_pendientes_detalle(solo_hoy: bool = True, fecha_inicio=None, fecha_fin=None):
+    where = []
+    params = {}
+    if solo_hoy:
+        where.append("p.fecha_pedido = CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), '-05:00') AS DATE)")
+    else:
+        if fecha_inicio is not None:
+            where.append("p.fecha_pedido >= :fecha_inicio")
+            params["fecha_inicio"] = fecha_inicio
+        if fecha_fin is not None:
+            where.append("p.fecha_pedido <= :fecha_fin")
+            params["fecha_fin"] = fecha_fin
+    date_filter = "AND " + " AND ".join(where) if where else ""
     return read_dataframe(f"""
         SELECT
             p.id_pedido,
@@ -1479,7 +1505,7 @@ def get_pedidos_pendientes_detalle(solo_hoy: bool = True):
           AND (pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada) > 0
           {date_filter}
         ORDER BY p.fecha_pedido DESC, p.nro_pedido, pd.nro_linea
-    """)
+    """, params)
 
 
 def get_pedido_detalle(id_pedido: int):
@@ -1531,6 +1557,12 @@ def get_pickings_resumen(fecha_inicio=None, fecha_fin=None, estado: str = ""):
             nro_picking,
             fecha_creacion,
             estado,
+            ISNULL(origen_atencion, 'DESKTOP') AS origen_atencion,
+            ISNULL(requiere_aprobacion_admin, 0) AS requiere_aprobacion_admin,
+            ISNULL(estado_aprobacion_admin, 'NO_REQUIERE') AS estado_aprobacion_admin,
+            usuario_creacion,
+            usuario_aprobacion,
+            fecha_aprobacion,
             qty_total,
             qty_asignada,
             qty_corto,
@@ -1644,6 +1676,49 @@ def get_tareas_picking_pendientes():
         ORDER BY pd.secuencia, ub.codigo_ubicacion, ph.nro_picking, pd.nro_pedido, p.sku
     """)
 
+
+
+def get_pickings_rf_pendientes_aprobacion():
+    """Pickings atendidos por RF pendientes de aprobación de administrador."""
+    return read_dataframe("""
+        SELECT
+            CAST(0 AS BIT) AS seleccionar,
+            ph.id_picking,
+            ph.nro_picking,
+            ph.fecha_creacion,
+            ph.fecha_actualizacion,
+            ph.estado,
+            ISNULL(ph.origen_atencion, 'RF') AS origen_atencion,
+            ISNULL(ph.estado_aprobacion_admin, 'PENDIENTE') AS estado_aprobacion_admin,
+            uc.usuario_login AS usuario_atencion,
+            COUNT(DISTINCT pp.id_pedido) AS pedidos,
+            STRING_AGG(CONVERT(NVARCHAR(MAX), ped.nro_pedido), ', ') AS nro_pedidos,
+            MIN(c.codigo_cuenta) AS codigo_cuenta,
+            MIN(c.nombre_cuenta) AS nombre_cuenta,
+            CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
+            COUNT(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 END) AS tareas_completadas,
+            COUNT(DISTINCT pd.id_producto) AS codigos,
+            COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones
+        FROM dbo.picking_header ph
+        INNER JOIN dbo.picking_detalle pd ON pd.id_picking = ph.id_picking
+        LEFT JOIN dbo.picking_pedido pp ON pp.id_picking = ph.id_picking
+        LEFT JOIN dbo.pedidos ped ON ped.id_pedido = pp.id_pedido
+        LEFT JOIN dbo.cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
+        LEFT JOIN dbo.usuarios uc ON uc.id_usuario = ph.id_usuario_creacion
+        WHERE ISNULL(ph.requiere_aprobacion_admin, 0) = 1
+          AND ISNULL(ph.estado_aprobacion_admin, '') = 'PENDIENTE'
+          AND ph.estado IN ('COMPLETADO','COMPLETADO-CORTO')
+        GROUP BY
+            ph.id_picking,
+            ph.nro_picking,
+            ph.fecha_creacion,
+            ph.fecha_actualizacion,
+            ph.estado,
+            ph.origen_atencion,
+            ph.estado_aprobacion_admin,
+            uc.usuario_login
+        ORDER BY ph.fecha_actualizacion DESC, ph.nro_picking DESC
+    """)
 
 def get_stock_para_transferencia():
     return read_dataframe("""
