@@ -133,9 +133,10 @@ def validar_proveedores_excel(df: pd.DataFrame):
     return pd.DataFrame(preview_rows), rows
 
 
-tab_crear, tab_editar, tab_carga, tab_listado = st.tabs([
+tab_crear, tab_editar, tab_mod_masiva, tab_carga, tab_listado = st.tabs([
     "Agregar",
     "Modificar / eliminar",
+    "Modificación masiva",
     "Carga masiva",
     "Listado",
 ])
@@ -251,6 +252,45 @@ with tab_editar:
                 st.error("No se pudo desactivar el proveedor.")
                 st.exception(exc)
 
+
+
+with tab_mod_masiva:
+    st.write("Edita múltiples proveedores y presiona Guardar modificación masiva.")
+    if proveedores.empty:
+        st.info("No hay proveedores registrados.")
+    else:
+        editable = proveedores[[
+            "id_proveedor", "ruc", "razon_social", "rubro_proveedor", "contacto", "nro_telefono",
+            "correo", "direccion", "pais", "ciudad", "estado", "activo"
+        ]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_proveedor"],
+            key="proveedores_modificacion_masiva_editor",
+            column_config={"activo": st.column_config.CheckboxColumn("activo")},
+        )
+        if st.button("Guardar modificación masiva", type="primary", use_container_width=True, key="proveedores_modificacion_masiva_guardar"):
+            try:
+                for _, row in edited_mass.iterrows():
+                    estado = clean_upper(row.get("estado")) or "ACTIVO"
+                    if estado not in ESTADOS:
+                        raise ValueError(f"Proveedor {row.get('ruc')}: estado inválido {estado}")
+                    correo = clean_text(row.get("correo"))
+                    if not _is_valid_email(correo):
+                        raise ValueError(f"Proveedor {row.get('ruc')}: correo inválido")
+                    update_proveedor(
+                        int(row["id_proveedor"]), row.get("ruc"), row.get("razon_social"), row.get("rubro_proveedor"),
+                        row.get("contacto"), row.get("nro_telefono"), correo, row.get("direccion"), row.get("pais"),
+                        row.get("ciudad"), estado, int(bool(row.get("activo"))),
+                    )
+                st.session_state["msg_proveedor"] = f"Se actualizaron {len(edited_mass)} proveedores correctamente."
+                load_proveedores_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de proveedores.")
+                st.exception(exc)
 
 with tab_carga:
     st.write("Descarga la plantilla, complétala y luego carga el archivo para validarlo.")
