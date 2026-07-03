@@ -166,6 +166,8 @@ tabs = st.tabs([
     "Modificar / eliminar unidad",
     "Carga masiva unidades",
     "Listado",
+    "Modif. masiva categorías",
+    "Modif. masiva unidades",
 ])
 
 
@@ -391,3 +393,54 @@ with tabs[6]:
 
     st.subheader("Unidades")
     st.dataframe(unidades, use_container_width=True, hide_index=True)
+
+
+with tabs[7]:
+    st.write("Edita múltiples categorías y presiona Guardar modificación masiva.")
+    if categorias.empty:
+        st.info("No hay categorías registradas.")
+    else:
+        editable = categorias[["id_categoria", "nombre_categoria", "descripcion", "activo"]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_categoria"],
+            key="categorias_modificacion_masiva_editor",
+            column_config={"activo": st.column_config.CheckboxColumn("activo")},
+        )
+        if st.button("Guardar modificación masiva categorías", type="primary", use_container_width=True, key="categorias_modificacion_masiva_guardar"):
+            try:
+                for _, row in edited_mass.iterrows():
+                    update_categoria(int(row["id_categoria"]), row.get("nombre_categoria"), row.get("descripcion"), int(bool(row.get("activo"))))
+                st.session_state["msg_maestro"] = f"Se actualizaron {len(edited_mass)} categorías correctamente."
+                load_categorias_unidades_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de categorías.")
+                st.exception(exc)
+
+with tabs[8]:
+    st.write("Edita múltiples unidades y presiona Guardar modificación masiva.")
+    if unidades.empty:
+        st.info("No hay unidades registradas.")
+    else:
+        editable = unidades[["id_unidad", "codigo_unidad", "nombre_unidad", "activo"]].copy()
+        edited_mass = st.data_editor(
+            editable,
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id_unidad"],
+            key="unidades_modificacion_masiva_editor",
+            column_config={"activo": st.column_config.CheckboxColumn("activo")},
+        )
+        if st.button("Guardar modificación masiva unidades", type="primary", use_container_width=True, key="unidades_modificacion_masiva_guardar"):
+            try:
+                for _, row in edited_mass.iterrows():
+                    update_unidad(int(row["id_unidad"]), row.get("codigo_unidad"), row.get("nombre_unidad"), int(bool(row.get("activo"))))
+                st.session_state["msg_maestro"] = f"Se actualizaron {len(edited_mass)} unidades correctamente."
+                load_categorias_unidades_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error("No se pudo guardar la modificación masiva de unidades.")
+                st.exception(exc)
