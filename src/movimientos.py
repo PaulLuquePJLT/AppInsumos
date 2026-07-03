@@ -131,7 +131,7 @@ def registrar_entrada_migo(
                     BEGIN
                         UPDATE stock_ubicacion
                         SET cantidad_actual = cantidad_actual + :cantidad,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_producto = :id_producto
                           AND id_ubicacion = :id_ubicacion_destino
                           AND ISNULL(lote, '') = ISNULL(:lote, '')
@@ -514,7 +514,7 @@ def eliminar_pedidos(ids_pedidos: list[int]) -> dict:
                 UPDATE pd
                 SET cantidad_asignada = 0,
                     estado = 'PENDIENTE',
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 FROM pedido_detalle pd
                 INNER JOIN pedidos p ON p.id_pedido = pd.id_pedido
                 WHERE p.id_pedido IN ({placeholders})
@@ -689,7 +689,7 @@ def _recalcular_picking_estado(conn, id_picking: int):
                 qty_total = ISNULL(:qty_total, 0),
                 qty_asignada = ISNULL(:qty_asignada, 0),
                 qty_corto = ISNULL(:qty_corto, 0),
-                fecha_actualizacion = SYSDATETIME()
+                fecha_actualizacion = dbo.fn_now_bogota_lima()
             WHERE id_picking = :id_picking
               AND estado <> 'CANCELADO'
         """),
@@ -731,7 +731,7 @@ def _recalcular_picking_estado(conn, id_picking: int):
             text("""
                 UPDATE pedidos
                 SET estado = :estado,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_pedido = :id_pedido
                   AND estado <> 'CANCELADO'
             """),
@@ -820,7 +820,7 @@ def crear_picking_desde_pedidos(id_pedidos: list[int], id_usuario: int, texto_ca
                     text("""
                         UPDATE stock_ubicacion
                         SET cantidad_en_picking = ISNULL(cantidad_en_picking, 0) + :assign_qty,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_stock_ubicacion = :id_stock_ubicacion
                     """),
                     {"assign_qty": assign_qty, "id_stock_ubicacion": int(stock["id_stock_ubicacion"])},
@@ -846,7 +846,7 @@ def crear_picking_desde_pedidos(id_pedidos: list[int], id_usuario: int, texto_ca
                         UPDATE pedido_detalle
                         SET cantidad_asignada = cantidad_asignada + :assigned_total,
                             estado = CASE WHEN :remaining > 0 THEN 'CORTO' ELSE 'EN_PICKING' END,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_pedido_detalle = :id_pedido_detalle
                     """),
                     {
@@ -880,7 +880,7 @@ def crear_picking_desde_pedidos(id_pedidos: list[int], id_usuario: int, texto_ca
                         text("""
                             UPDATE pedido_detalle
                             SET estado = 'CORTO',
-                                fecha_actualizacion = SYSDATETIME()
+                                fecha_actualizacion = dbo.fn_now_bogota_lima()
                             WHERE id_pedido_detalle = :id_pedido_detalle
                         """),
                         {"id_pedido_detalle": int(d["id_pedido_detalle"])},
@@ -890,7 +890,7 @@ def crear_picking_desde_pedidos(id_pedidos: list[int], id_usuario: int, texto_ca
             text("""
                 UPDATE pedidos
                 SET estado = 'EN_PICKING',
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_pedido IN (
                     SELECT id_pedido FROM picking_pedido WHERE id_picking = :id_picking
                 )
@@ -906,7 +906,7 @@ def crear_picking_desde_pedidos(id_pedidos: list[int], id_usuario: int, texto_ca
                     qty_total = :qty_total,
                     qty_asignada = :qty_asignada,
                     qty_corto = :qty_corto,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_picking = :id_picking
             """),
             {
@@ -961,7 +961,7 @@ def cancelar_picking(id_picking: int) -> None:
                             WHEN ISNULL(cantidad_en_picking, 0) >= :qty THEN ISNULL(cantidad_en_picking, 0) - :qty
                             ELSE 0
                         END,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_producto = :id_producto
                       AND id_ubicacion = :id_ubicacion_origen
                       AND ISNULL(lote, '') = ISNULL(:lote, '')
@@ -981,7 +981,7 @@ def cancelar_picking(id_picking: int) -> None:
                             ELSE 0
                         END,
                         estado = 'PENDIENTE',
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_pedido_detalle = :id_pedido_detalle
                 """),
                 {
@@ -993,7 +993,7 @@ def cancelar_picking(id_picking: int) -> None:
         conn.execute(
             text("""
                 UPDATE pedido_detalle
-                SET estado = 'PENDIENTE', fecha_actualizacion = SYSDATETIME()
+                SET estado = 'PENDIENTE', fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_pedido_detalle IN (
                     SELECT id_pedido_detalle FROM picking_detalle
                     WHERE id_picking = :id_picking AND estado = 'CORTO'
@@ -1005,7 +1005,7 @@ def cancelar_picking(id_picking: int) -> None:
         conn.execute(
             text("""
                 UPDATE pedidos
-                SET estado = 'CREADO', fecha_actualizacion = SYSDATETIME()
+                SET estado = 'CREADO', fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_pedido IN (
                     SELECT id_pedido FROM picking_pedido WHERE id_picking = :id_picking
                 )
@@ -1016,7 +1016,7 @@ def cancelar_picking(id_picking: int) -> None:
         conn.execute(
             text("""
                 UPDATE picking_detalle
-                SET estado = 'CANCELADO', fecha_actualizacion = SYSDATETIME()
+                SET estado = 'CANCELADO', fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_picking = :id_picking
                   AND estado IN ('LIBERADO','CORTO')
             """),
@@ -1025,7 +1025,7 @@ def cancelar_picking(id_picking: int) -> None:
         conn.execute(
             text("""
                 UPDATE picking_header
-                SET estado = 'CANCELADO', fecha_actualizacion = SYSDATETIME()
+                SET estado = 'CANCELADO', fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_picking = :id_picking
             """),
             {"id_picking": int(id_picking)},
@@ -1069,7 +1069,7 @@ def reasignar_cortos_picking(ids_cortos: list[int]) -> dict:
                     text("""
                         UPDATE stock_ubicacion
                         SET cantidad_en_picking = ISNULL(cantidad_en_picking, 0) + :qty,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_stock_ubicacion = :id_stock_ubicacion
                     """),
                     {"qty": assign_qty, "id_stock_ubicacion": int(stock["id_stock_ubicacion"])},
@@ -1095,7 +1095,7 @@ def reasignar_cortos_picking(ids_cortos: list[int]) -> dict:
                         UPDATE pedido_detalle
                         SET cantidad_asignada = cantidad_asignada + :assigned,
                             estado = CASE WHEN :remaining > 0 THEN 'CORTO' ELSE 'EN_PICKING' END,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_pedido_detalle = :id_pedido_detalle
                     """),
                     {
@@ -1109,7 +1109,7 @@ def reasignar_cortos_picking(ids_cortos: list[int]) -> dict:
                 conn.execute(
                     text("""
                         UPDATE picking_detalle
-                        SET estado = 'REASIGNADO', fecha_actualizacion = SYSDATETIME()
+                        SET estado = 'REASIGNADO', fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_picking_detalle = :id_picking_detalle
                     """),
                     {"id_picking_detalle": int(corto["id_picking_detalle"])},
@@ -1120,7 +1120,7 @@ def reasignar_cortos_picking(ids_cortos: list[int]) -> dict:
                     text("""
                         UPDATE picking_detalle
                         SET cantidad_solicitada = :remaining,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_picking_detalle = :id_picking_detalle
                     """),
                     {
@@ -1162,7 +1162,7 @@ def cancelar_cortos_picking(ids_cortos: list[int]) -> dict:
                     UPDATE picking_detalle
                     SET estado = 'CANCELADO',
                         cantidad_cancelada = cantidad_solicitada,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_picking_detalle = :id_picking_detalle
                 """),
                 {"id_picking_detalle": int(corto["id_picking_detalle"])},
@@ -1175,7 +1175,7 @@ def cancelar_cortos_picking(ids_cortos: list[int]) -> dict:
                             WHEN cantidad_pedida <= cantidad_atendida + cantidad_cancelada + :qty THEN 'CANCELADO'
                             ELSE estado
                         END,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_pedido_detalle = :id_pedido_detalle
                 """),
                 {"qty": qty, "id_pedido_detalle": int(corto["id_pedido_detalle"])},
@@ -1220,6 +1220,20 @@ def atender_tareas_picking(
         if not tareas:
             raise ValueError("No hay tareas liberadas para atender.")
 
+        stage_salida_id = None
+        if requiere_aprobacion_admin:
+            stage_salida_id = conn.execute(
+                text("""
+                    SELECT id_ubicacion
+                    FROM ubicaciones
+                    WHERE codigo_ubicacion = 'B1.ST.01'
+                      AND activo = 1
+                """)
+            ).scalar()
+            if not stage_salida_id:
+                raise ValueError("No existe la ubicación stage de salida B1.ST.01 activa. Ejecuta la migración 018.")
+            stage_salida_id = int(stage_salida_id)
+
         movements_by_account = {}
         picking_ids = set()
         qty_atendida = 0.0
@@ -1252,7 +1266,7 @@ def atender_tareas_picking(
                             WHEN ISNULL(cantidad_en_picking, 0) >= :qty THEN ISNULL(cantidad_en_picking, 0) - :qty
                             ELSE 0
                         END,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_producto = :id_producto
                       AND id_ubicacion = :id_ubicacion
                       AND ISNULL(lote, '') = ISNULL(:lote, '')
@@ -1286,17 +1300,54 @@ def atender_tareas_picking(
                 movements_by_account[id_cuenta] = int(id_mov)
 
             id_movimiento = movements_by_account[id_cuenta]
+            if requiere_aprobacion_admin:
+                # El stock atendido por RF queda físicamente en stage de salida
+                # hasta que el administrador apruebe la entrega a cuenta.
+                conn.execute(
+                    text("""
+                        IF EXISTS (
+                            SELECT 1
+                            FROM stock_ubicacion WITH (UPDLOCK, ROWLOCK)
+                            WHERE id_producto = :id_producto
+                              AND id_ubicacion = :id_stage
+                              AND ISNULL(lote, '') = ISNULL(:lote, '')
+                        )
+                        BEGIN
+                            UPDATE stock_ubicacion
+                            SET cantidad_actual = cantidad_actual + :qty,
+                                fecha_actualizacion = dbo.fn_now_bogota_lima()
+                            WHERE id_producto = :id_producto
+                              AND id_ubicacion = :id_stage
+                              AND ISNULL(lote, '') = ISNULL(:lote, '')
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO stock_ubicacion
+                                (id_producto, id_ubicacion, lote, cantidad_actual, cantidad_en_picking, fecha_actualizacion)
+                            VALUES
+                                (:id_producto, :id_stage, :lote, :qty, 0, dbo.fn_now_bogota_lima())
+                        END
+                    """),
+                    {
+                        "id_producto": int(tarea["id_producto"]),
+                        "id_stage": stage_salida_id,
+                        "lote": tarea["lote"],
+                        "qty": qty,
+                    },
+                )
+
             conn.execute(
                 text("""
                     INSERT INTO movimiento_detalle
-                        (id_movimiento, id_producto, id_ubicacion_origen, cantidad, lote, observacion, id_picking_detalle)
+                        (id_movimiento, id_producto, id_ubicacion_origen, id_ubicacion_destino, cantidad, lote, observacion, id_picking_detalle)
                     VALUES
-                        (:id_movimiento, :id_producto, :id_ubicacion_origen, :cantidad, :lote, :observacion, :id_picking_detalle)
+                        (:id_movimiento, :id_producto, :id_ubicacion_origen, :id_ubicacion_destino, :cantidad, :lote, :observacion, :id_picking_detalle)
                 """),
                 {
                     "id_movimiento": id_movimiento,
                     "id_producto": int(tarea["id_producto"]),
                     "id_ubicacion_origen": int(tarea["id_ubicacion_origen"]),
+                    "id_ubicacion_destino": stage_salida_id if requiere_aprobacion_admin else None,
                     "cantidad": qty,
                     "lote": tarea["lote"],
                     "observacion": tarea.get("texto_item"),
@@ -1311,7 +1362,7 @@ def atender_tareas_picking(
                         BEGIN
                             UPDATE stock_cuenta
                             SET cantidad_entregada = cantidad_entregada + :qty,
-                                fecha_actualizacion = SYSDATETIME()
+                                fecha_actualizacion = dbo.fn_now_bogota_lima()
                             WHERE id_cuenta = :id_cuenta
                               AND id_producto = :id_producto
                         END
@@ -1329,7 +1380,7 @@ def atender_tareas_picking(
                     UPDATE picking_detalle
                     SET estado = 'COMPLETADO',
                         cantidad_atendida = cantidad_asignada,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_picking_detalle = :id_picking_detalle
                 """),
                 {"id_picking_detalle": int(tarea["id_picking_detalle"])},
@@ -1342,7 +1393,7 @@ def atender_tareas_picking(
                             WHEN cantidad_pedida <= cantidad_atendida + cantidad_cancelada + :qty THEN 'COMPLETADO'
                             ELSE estado
                         END,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_pedido_detalle = :id_pedido_detalle
                 """),
                 {"qty": qty, "id_pedido_detalle": int(tarea["id_pedido_detalle"])},
@@ -1361,7 +1412,7 @@ def atender_tareas_picking(
                                 WHEN :estado_final IN ('COMPLETADO','COMPLETADO-CORTO') THEN 'PENDIENTE'
                                 ELSE ISNULL(estado_aprobacion_admin, 'PENDIENTE')
                             END,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_picking = :id_picking
                     """),
                     {
@@ -1432,7 +1483,7 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
             for mov in movimientos:
                 detalles = list(conn.execute(
                     text("""
-                        SELECT id_detalle, id_producto, cantidad
+                        SELECT id_detalle, id_producto, id_ubicacion_destino, lote, cantidad
                         FROM movimiento_detalle
                         WHERE id_movimiento = :id_movimiento
                     """),
@@ -1443,13 +1494,47 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                     qty = float(det["cantidad"] or 0)
                     if qty <= 0:
                         continue
+                    # Al aprobar, el stock sale del stage B1.ST.01 y recién se entrega a la cuenta.
+                    if det.get("id_ubicacion_destino"):
+                        conn.execute(
+                            text("""
+                                UPDATE stock_ubicacion
+                                SET cantidad_actual = cantidad_actual - :qty,
+                                    fecha_actualizacion = dbo.fn_now_bogota_lima()
+                                WHERE id_producto = :id_producto
+                                  AND id_ubicacion = :id_ubicacion_destino
+                                  AND ISNULL(lote, '') = ISNULL(:lote, '')
+                            """),
+                            {
+                                "qty": qty,
+                                "id_producto": int(det["id_producto"]),
+                                "id_ubicacion_destino": int(det["id_ubicacion_destino"]),
+                                "lote": det.get("lote"),
+                            },
+                        )
+                        conn.execute(
+                            text("""
+                                DELETE FROM stock_ubicacion
+                                WHERE id_ubicacion = :id_ubicacion_destino
+                                  AND id_producto = :id_producto
+                                  AND ISNULL(lote, '') = ISNULL(:lote, '')
+                                  AND ISNULL(cantidad_actual, 0) <= 0
+                                  AND ISNULL(cantidad_en_picking, 0) <= 0
+                            """),
+                            {
+                                "id_producto": int(det["id_producto"]),
+                                "id_ubicacion_destino": int(det["id_ubicacion_destino"]),
+                                "lote": det.get("lote"),
+                            },
+                        )
+
                     conn.execute(
                         text("""
                             IF EXISTS (SELECT 1 FROM stock_cuenta WHERE id_cuenta = :id_cuenta AND id_producto = :id_producto)
                             BEGIN
                                 UPDATE stock_cuenta
                                 SET cantidad_entregada = cantidad_entregada + :qty,
-                                    fecha_actualizacion = SYSDATETIME()
+                                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                                 WHERE id_cuenta = :id_cuenta
                                   AND id_producto = :id_producto
                             END
@@ -1511,7 +1596,7 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                     SET estado_aprobacion_admin = 'APROBADO',
                         id_usuario_aprobacion = :id_usuario,
                         fecha_aprobacion = dbo.fn_now_bogota_lima(),
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_picking = :id_picking
                 """),
                 {"id_picking": int(id_picking), "id_usuario": int(id_usuario)},
@@ -1574,7 +1659,7 @@ def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usu
                 text("""
                     UPDATE stock_ubicacion
                     SET cantidad_actual = cantidad_actual - :qty,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_producto = :id_producto
                       AND id_ubicacion = :id_ubicacion_origen
                       AND ISNULL(lote, '') = ISNULL(:lote, '')
@@ -1598,7 +1683,7 @@ def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usu
                     BEGIN
                         UPDATE stock_ubicacion
                         SET cantidad_actual = cantidad_actual + :qty,
-                            fecha_actualizacion = SYSDATETIME()
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
                         WHERE id_producto = :id_producto
                           AND id_ubicacion = :id_ubicacion_destino
                           AND ISNULL(lote, '') = ISNULL(:lote, '')
