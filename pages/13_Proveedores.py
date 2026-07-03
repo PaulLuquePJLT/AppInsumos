@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from src.ui_filters import filter_bulk_dataframe
+from src.ui_filters import render_multicriteria_filter
 
 from src.bulk_utils import (
     add_error,
@@ -261,15 +261,21 @@ with tab_mod_masiva:
     if proveedores.empty:
         st.info("No hay proveedores registrados.")
     else:
-        proveedores_filtrados = filter_bulk_dataframe(
-            proveedores,
-            key_prefix="proveedores_mod_masiva",
-            text_columns=["ruc", "razon_social", "rubro_proveedor", "contacto", "correo", "pais", "ciudad", "estado"],
-        )
-        editable = proveedores_filtrados[[
+        editable = proveedores[[
             "id_proveedor", "ruc", "razon_social", "rubro_proveedor", "contacto", "nro_telefono",
             "correo", "direccion", "pais", "ciudad", "estado", "activo"
         ]].copy()
+        editable = render_multicriteria_filter(
+            editable,
+            [
+                {"column": "ruc", "label": "Filtrar por RUC(s)", "mode": "exact", "placeholder": "Pega RUCs desde Excel"},
+                {"column": "razon_social", "label": "Filtrar por razón social", "mode": "contains", "placeholder": "Pega razones sociales o palabras"},
+                {"column": "rubro_proveedor", "label": "Filtrar por rubro(s)", "mode": "contains", "placeholder": "Pega rubros"},
+                {"column": "correo", "label": "Filtrar por correo(s)", "mode": "contains", "placeholder": "Pega correos"},
+                {"column": "estado", "label": "Filtrar por estado(s)", "mode": "exact", "placeholder": "ACTIVO, INACTIVO, BLOQUEADO"},
+            ],
+            key_prefix="proveedores_mod_masiva",
+        )
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
