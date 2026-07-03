@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from src.ui_filters import filter_bulk_dataframe
+
 from src.bulk_utils import (
     add_error,
     build_excel_template,
@@ -309,7 +311,12 @@ with tabs[7]:
     if zonas_todas.empty:
         st.info("No hay zonas registradas.")
     else:
-        editable = zonas_todas[["id_zona", "codigo_zona", "nombre_zona", "descripcion", "activo"]].copy()
+        zonas_filtradas = filter_bulk_dataframe(
+            zonas_todas,
+            key_prefix="zonas_mod_masiva",
+            text_columns=["codigo_zona", "nombre_zona", "descripcion"],
+        )
+        editable = zonas_filtradas[["id_zona", "codigo_zona", "nombre_zona", "descripcion", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
@@ -336,7 +343,12 @@ with tabs[8]:
     elif zonas.empty:
         st.warning("No hay zonas activas para actualizar ubicaciones.")
     else:
-        editable = ubicaciones[[
+        ubicaciones_filtradas = filter_bulk_dataframe(
+            ubicaciones,
+            key_prefix="ubicaciones_mod_masiva",
+            text_columns=["codigo_ubicacion", "codigo_zona", "tipo_ubicacion", "pasillo", "rack", "nivel", "posicion"],
+        )
+        editable = ubicaciones_filtradas[[
             "id_ubicacion", "codigo_ubicacion", "codigo_zona", "tipo_ubicacion", "pasillo", "rack", "nivel",
             "posicion", "capacidad_maxima", "secuencia", "es_surtible", "es_stage", "activo"
         ]].copy()
