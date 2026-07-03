@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from src.ui_filters import filter_bulk_dataframe
+from src.ui_filters import render_multicriteria_filter
 
 from src.bulk_utils import (
     add_error,
@@ -440,16 +440,22 @@ with tab_mod_masiva:
     if productos.empty:
         st.info("No hay productos registrados.")
     else:
-        productos_filtrados = filter_bulk_dataframe(
-            productos,
-            key_prefix="productos_mod_masiva",
-            text_columns=["sku", "nombre_producto", "descripcion", "ean_serie", "nombre_categoria", "codigo_unidad"],
-        )
-        editable = productos_filtrados[[
+        editable = productos[[
             "id_producto", "sku", "nombre_producto", "descripcion", "ean_serie", "flag_aplica_ean",
             "precio_unitario", "vida_util_cuenta_dias", "nombre_categoria", "codigo_unidad",
             "stock_minimo", "stock_maximo", "requiere_lote", "activo"
         ]].copy()
+        editable = render_multicriteria_filter(
+            editable,
+            [
+                {"column": "sku", "label": "Filtrar por SKU(s)", "mode": "exact", "placeholder": "Pega SKUs desde Excel"},
+                {"column": "ean_serie", "label": "Filtrar por EAN(s)", "mode": "exact", "placeholder": "Pega EANs desde Excel"},
+                {"column": "nombre_producto", "label": "Filtrar por nombre/descripción", "mode": "contains", "placeholder": "Pega palabras o nombres"},
+                {"column": "nombre_categoria", "label": "Filtrar por categoría(s)", "mode": "exact", "placeholder": "Pega categorías"},
+                {"column": "codigo_unidad", "label": "Filtrar por unidad(es)", "mode": "exact", "placeholder": "Pega UND, CJ, etc."},
+            ],
+            key_prefix="productos_mod_masiva",
+        )
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
