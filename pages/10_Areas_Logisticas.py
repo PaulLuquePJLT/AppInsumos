@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from src.ui_filters import filter_bulk_dataframe
+from src.ui_filters import render_multicriteria_filter
 
 from src.bulk_utils import (
     add_error,
@@ -190,12 +190,17 @@ with tab_mod_masiva:
     if cuentas.empty:
         st.info("No hay áreas logísticas registradas.")
     else:
-        cuentas_filtradas = filter_bulk_dataframe(
-            cuentas,
+        editable = cuentas[["id_cuenta", "codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo", "activo"]].copy()
+        editable = render_multicriteria_filter(
+            editable,
+            [
+                {"column": "codigo_cuenta", "label": "Filtrar por código(s) de cuenta", "mode": "exact", "placeholder": "Pega códigos de cuenta"},
+                {"column": "nombre_cuenta", "label": "Filtrar por nombre(s)", "mode": "contains", "placeholder": "Pega nombres o palabras"},
+                {"column": "responsable", "label": "Filtrar por responsable(s)", "mode": "contains", "placeholder": "Pega responsables"},
+                {"column": "centro_costo", "label": "Filtrar por centro(s) de costo", "mode": "exact", "placeholder": "Pega centros de costo"},
+            ],
             key_prefix="cuentas_mod_masiva",
-            text_columns=["codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo"],
         )
-        editable = cuentas_filtradas[["id_cuenta", "codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
