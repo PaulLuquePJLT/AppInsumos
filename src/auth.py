@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from src.db import get_engine
 from src.email_service import send_email
+from src.time_utils import local_now
 
 
 RESET_CODE_MINUTES = 15
@@ -142,8 +143,8 @@ def authenticate_user(identifier: str, password: str) -> dict | None:
         conn.execute(
             text("""
                 UPDATE usuarios
-                SET ultimo_login = SYSDATETIME(),
-                    fecha_actualizacion = SYSDATETIME()
+                SET ultimo_login = dbo.fn_now_bogota_lima(),
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_usuario = :id_usuario
             """),
             {"id_usuario": int(user["id_usuario"])},
@@ -233,7 +234,7 @@ def update_user(
                     email = :email,
                     id_rol = :id_rol,
                     activo = :activo,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                     {password_sql}
                 WHERE id_usuario = :id_usuario
             """),
@@ -247,7 +248,7 @@ def deactivate_user(id_usuario: int) -> None:
             text("""
                 UPDATE usuarios
                 SET activo = 0,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_usuario = :id_usuario
             """),
             {"id_usuario": int(id_usuario)},
@@ -263,7 +264,7 @@ def update_user_password(id_usuario: int, new_password: str) -> None:
                     reset_code_hash = NULL,
                     reset_code_expires_at = NULL,
                     reset_code_attempts = 0,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_usuario = :id_usuario
             """),
             {
@@ -281,7 +282,7 @@ def request_password_reset(identifier: str) -> bool:
         return False
 
     code = f"{secrets.randbelow(1000000):06d}"
-    expires_at = datetime.now() + timedelta(minutes=RESET_CODE_MINUTES)
+    expires_at = local_now().replace(tzinfo=None) + timedelta(minutes=RESET_CODE_MINUTES)
 
     with get_engine().begin() as conn:
         conn.execute(
@@ -290,7 +291,7 @@ def request_password_reset(identifier: str) -> bool:
                 SET reset_code_hash = :reset_code_hash,
                     reset_code_expires_at = :reset_code_expires_at,
                     reset_code_attempts = 0,
-                    fecha_actualizacion = SYSDATETIME()
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
                 WHERE id_usuario = :id_usuario
             """),
             {
@@ -333,7 +334,7 @@ def reset_password_with_code(identifier: str, code: str, new_password: str) -> t
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
 
-    if datetime.now() > expires_at:
+    if local_now().replace(tzinfo=None) > expires_at:
         return False, "El código venció. Solicita un nuevo código."
 
     if not _verify_password(str(code).strip(), user.get("reset_code_hash")):
@@ -342,7 +343,7 @@ def reset_password_with_code(identifier: str, code: str, new_password: str) -> t
                 text("""
                     UPDATE usuarios
                     SET reset_code_attempts = ISNULL(reset_code_attempts, 0) + 1,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                     WHERE id_usuario = :id_usuario
                 """),
                 {"id_usuario": int(user["id_usuario"])},
@@ -417,7 +418,7 @@ def ensure_default_admin(
                         nombre = ISNULL(nombre, 'Administrador WMS'),
                         id_rol = :id_rol,
                         activo = 1,
-                        fecha_actualizacion = SYSDATETIME()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
                         {password_sql}
                     WHERE id_usuario = :id_usuario
                 """),
