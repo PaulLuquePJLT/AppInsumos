@@ -1187,9 +1187,18 @@ def cancelar_cortos_picking(ids_cortos: list[int]) -> dict:
     return {"cortos_cancelados": len(cortos), "qty_cancelada": qty_cancelada}
 
 
-def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: str | None = None) -> dict:
+def atender_tareas_picking(
+    ids_tareas: list[int],
+    id_usuario: int,
+    observacion: str | None = None,
+    requiere_aprobacion_admin: bool = False,
+    origen_atencion: str = 'DESKTOP',
+) -> dict:
     if not ids_tareas:
         raise ValueError("Selecciona al menos una tarea.")
+
+    movimiento_estado = 'PENDIENTE_APROBACION' if requiere_aprobacion_admin else 'CONFIRMADO'
+    origen_atencion = str(origen_atencion or ('RF' if requiere_aprobacion_admin else 'DESKTOP')).upper()
 
     with get_engine().begin() as conn:
         placeholders = ",".join(f":t{i}" for i, _ in enumerate(ids_tareas))
@@ -1264,13 +1273,14 @@ def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: 
                             (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
                         OUTPUT INSERTED.id_movimiento
                         VALUES
-                            ('SALIDA_CUENTA', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
+                            ('SALIDA_CUENTA', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, :estado)
                     """),
                     {
                         "id_cuenta": id_cuenta,
                         "referencia": f"PICKING {tarea['nro_picking']}",
                         "observacion": observacion,
                         "id_usuario": int(id_usuario),
+                        "estado": movimiento_estado,
                     },
                 ).scalar_one()
                 movements_by_account[id_cuenta] = int(id_mov)
@@ -1279,9 +1289,9 @@ def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: 
             conn.execute(
                 text("""
                     INSERT INTO movimiento_detalle
-                        (id_movimiento, id_producto, id_ubicacion_origen, cantidad, lote, observacion)
+                        (id_movimiento, id_producto, id_ubicacion_origen, cantidad, lote, observacion, id_picking_detalle)
                     VALUES
-                        (:id_movimiento, :id_producto, :id_ubicacion_origen, :cantidad, :lote, :observacion)
+                        (:id_movimiento, :id_producto, :id_ubicacion_origen, :cantidad, :lote, :observacion, :id_picking_detalle)
                 """),
                 {
                     "id_movimiento": id_movimiento,
@@ -1290,27 +1300,29 @@ def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: 
                     "cantidad": qty,
                     "lote": tarea["lote"],
                     "observacion": tarea.get("texto_item"),
+                    "id_picking_detalle": int(tarea["id_picking_detalle"]),
                 },
             )
 
-            conn.execute(
-                text("""
-                    IF EXISTS (SELECT 1 FROM stock_cuenta WHERE id_cuenta = :id_cuenta AND id_producto = :id_producto)
-                    BEGIN
-                        UPDATE stock_cuenta
-                        SET cantidad_entregada = cantidad_entregada + :qty,
-                            fecha_actualizacion = SYSDATETIME()
-                        WHERE id_cuenta = :id_cuenta
-                          AND id_producto = :id_producto
-                    END
-                    ELSE
-                    BEGIN
-                        INSERT INTO stock_cuenta (id_cuenta, id_producto, cantidad_entregada, cantidad_devuelta)
-                        VALUES (:id_cuenta, :id_producto, :qty, 0)
-                    END
-                """),
-                {"id_cuenta": id_cuenta, "id_producto": int(tarea["id_producto"]), "qty": qty},
-            )
+            if not requiere_aprobacion_admin:
+                conn.execute(
+                    text("""
+                        IF EXISTS (SELECT 1 FROM stock_cuenta WHERE id_cuenta = :id_cuenta AND id_producto = :id_producto)
+                        BEGIN
+                            UPDATE stock_cuenta
+                            SET cantidad_entregada = cantidad_entregada + :qty,
+                                fecha_actualizacion = SYSDATETIME()
+                            WHERE id_cuenta = :id_cuenta
+                              AND id_producto = :id_producto
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO stock_cuenta (id_cuenta, id_producto, cantidad_entregada, cantidad_devuelta)
+                            VALUES (:id_cuenta, :id_producto, :qty, 0)
+                        END
+                    """),
+                    {"id_cuenta": id_cuenta, "id_producto": int(tarea["id_producto"]), "qty": qty},
+                )
 
             conn.execute(
                 text("""
@@ -1338,9 +1350,178 @@ def atender_tareas_picking(ids_tareas: list[int], id_usuario: int, observacion: 
             qty_atendida += qty
 
         for id_picking in picking_ids:
-            _recalcular_picking_estado(conn, int(id_picking))
+            estado_final = _recalcular_picking_estado(conn, int(id_picking))
+            if requiere_aprobacion_admin:
+                conn.execute(
+                    text("""
+                        UPDATE picking_header
+                        SET origen_atencion = :origen_atencion,
+                            requiere_aprobacion_admin = 1,
+                            estado_aprobacion_admin = CASE
+                                WHEN :estado_final IN ('COMPLETADO','COMPLETADO-CORTO') THEN 'PENDIENTE'
+                                ELSE ISNULL(estado_aprobacion_admin, 'PENDIENTE')
+                            END,
+                            fecha_actualizacion = SYSDATETIME()
+                        WHERE id_picking = :id_picking
+                    """),
+                    {
+                        "id_picking": int(id_picking),
+                        "origen_atencion": origen_atencion,
+                        "estado_final": estado_final,
+                    },
+                )
 
     return {"tareas_atendidas": len(tareas), "qty_atendida": qty_atendida}
+
+
+
+def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
+    """Aprueba pickings atendidos por RF y carga el stock a la cuenta logística.
+
+    Durante la atención RF se descuenta stock físico y se generan movimientos
+    SALIDA_CUENTA en estado PENDIENTE_APROBACION, pero no se actualiza
+    stock_cuenta. Esta función confirma esos movimientos y actualiza el stock
+    de la cuenta solicitante.
+    """
+    if not ids_picking:
+        raise ValueError("Selecciona al menos un picking para aprobar.")
+
+    with get_engine().begin() as conn:
+        placeholders = ",".join(f":p{i}" for i, _ in enumerate(ids_picking))
+        params = {f"p{i}": int(v) for i, v in enumerate(ids_picking)}
+
+        pickings = list(conn.execute(
+            text(f"""
+                SELECT id_picking, nro_picking, estado, estado_aprobacion_admin
+                FROM picking_header WITH (UPDLOCK, ROWLOCK)
+                WHERE id_picking IN ({placeholders})
+            """),
+            params,
+        ).mappings())
+
+        if not pickings:
+            raise ValueError("No se encontraron pickings para aprobar.")
+
+        invalid = [p["nro_picking"] for p in pickings if str(p["estado_aprobacion_admin"] or "") != "PENDIENTE"]
+        if invalid:
+            raise ValueError("Solo se pueden aprobar pickings RF en estado de aprobación PENDIENTE: " + ", ".join(invalid))
+
+        invalid_estado = [p["nro_picking"] for p in pickings if str(p["estado"] or "") not in {"COMPLETADO", "COMPLETADO-CORTO"}]
+        if invalid_estado:
+            raise ValueError("Solo se pueden aprobar pickings completados por RF: " + ", ".join(invalid_estado))
+
+        nro_by_id = {int(p["id_picking"]): str(p["nro_picking"]) for p in pickings}
+        qty_aprobada = 0.0
+        movimientos_aprobados = 0
+
+        for id_picking, nro_picking in nro_by_id.items():
+            movimientos = list(conn.execute(
+                text("""
+                    SELECT id_movimiento, id_cuenta
+                    FROM movimientos WITH (UPDLOCK, ROWLOCK)
+                    WHERE tipo_movimiento = 'SALIDA_CUENTA'
+                      AND estado = 'PENDIENTE_APROBACION'
+                      AND referencia = :referencia
+                """),
+                {"referencia": f"PICKING {nro_picking}"},
+            ).mappings())
+
+            if not movimientos:
+                raise ValueError(f"El picking {nro_picking} no tiene movimientos pendientes de aprobación.")
+
+            for mov in movimientos:
+                detalles = list(conn.execute(
+                    text("""
+                        SELECT id_detalle, id_producto, cantidad
+                        FROM movimiento_detalle
+                        WHERE id_movimiento = :id_movimiento
+                    """),
+                    {"id_movimiento": int(mov["id_movimiento"])},
+                ).mappings())
+
+                for det in detalles:
+                    qty = float(det["cantidad"] or 0)
+                    if qty <= 0:
+                        continue
+                    conn.execute(
+                        text("""
+                            IF EXISTS (SELECT 1 FROM stock_cuenta WHERE id_cuenta = :id_cuenta AND id_producto = :id_producto)
+                            BEGIN
+                                UPDATE stock_cuenta
+                                SET cantidad_entregada = cantidad_entregada + :qty,
+                                    fecha_actualizacion = SYSDATETIME()
+                                WHERE id_cuenta = :id_cuenta
+                                  AND id_producto = :id_producto
+                            END
+                            ELSE
+                            BEGIN
+                                INSERT INTO stock_cuenta (id_cuenta, id_producto, cantidad_entregada, cantidad_devuelta)
+                                VALUES (:id_cuenta, :id_producto, :qty, 0)
+                            END
+                        """),
+                        {"id_cuenta": int(mov["id_cuenta"]), "id_producto": int(det["id_producto"]), "qty": qty},
+                    )
+                    qty_aprobada += qty
+
+                    # Programa vencimiento de stock cuenta si aplica y si existe la tabla.
+                    conn.execute(
+                        text("""
+                            IF OBJECT_ID('dbo.stock_cuenta_vencimiento', 'U') IS NOT NULL
+                            BEGIN
+                                INSERT INTO dbo.stock_cuenta_vencimiento
+                                    (id_movimiento, id_detalle, id_cuenta, id_producto, cantidad_programada,
+                                     cantidad_aplicada, fecha_movimiento, fecha_vencimiento, estado)
+                                SELECT
+                                    m.id_movimiento,
+                                    md.id_detalle,
+                                    m.id_cuenta,
+                                    md.id_producto,
+                                    CAST(md.cantidad AS DECIMAL(18,2)),
+                                    0,
+                                    m.fecha_movimiento,
+                                    DATEADD(DAY, ISNULL(p.vida_util_cuenta_dias, 0), CAST(m.fecha_movimiento AS DATE)),
+                                    'PENDIENTE'
+                                FROM dbo.movimientos m
+                                INNER JOIN dbo.movimiento_detalle md ON md.id_movimiento = m.id_movimiento
+                                INNER JOIN dbo.productos p ON p.id_producto = md.id_producto
+                                WHERE md.id_detalle = :id_detalle
+                                  AND ISNULL(p.vida_util_cuenta_dias, 0) > 0
+                                  AND m.id_cuenta IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM dbo.stock_cuenta_vencimiento v WHERE v.id_detalle = md.id_detalle
+                                  );
+                            END
+                        """),
+                        {"id_detalle": int(det["id_detalle"])},
+                    )
+
+                conn.execute(
+                    text("""
+                        UPDATE movimientos
+                        SET estado = 'CONFIRMADO'
+                        WHERE id_movimiento = :id_movimiento
+                    """),
+                    {"id_movimiento": int(mov["id_movimiento"])},
+                )
+                movimientos_aprobados += 1
+
+            conn.execute(
+                text("""
+                    UPDATE picking_header
+                    SET estado_aprobacion_admin = 'APROBADO',
+                        id_usuario_aprobacion = :id_usuario,
+                        fecha_aprobacion = dbo.fn_now_bogota_lima(),
+                        fecha_actualizacion = SYSDATETIME()
+                    WHERE id_picking = :id_picking
+                """),
+                {"id_picking": int(id_picking), "id_usuario": int(id_usuario)},
+            )
+
+    return {
+        "pickings_aprobados": len(pickings),
+        "movimientos_aprobados": movimientos_aprobados,
+        "qty_aprobada": qty_aprobada,
+    }
 
 
 def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usuario: int, items: list[dict]) -> int:
