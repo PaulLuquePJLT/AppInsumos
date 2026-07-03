@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from src.ui_filters import filter_bulk_dataframe
+
 from src.bulk_utils import (
     add_error,
     build_excel_template,
@@ -188,7 +190,12 @@ with tab_mod_masiva:
     if cuentas.empty:
         st.info("No hay áreas logísticas registradas.")
     else:
-        editable = cuentas[["id_cuenta", "codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo", "activo"]].copy()
+        cuentas_filtradas = filter_bulk_dataframe(
+            cuentas,
+            key_prefix="cuentas_mod_masiva",
+            text_columns=["codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo"],
+        )
+        editable = cuentas_filtradas[["id_cuenta", "codigo_cuenta", "nombre_cuenta", "responsable", "centro_costo", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
