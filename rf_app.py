@@ -744,10 +744,24 @@ def render_transferencia() -> None:
         st.error("No hay ubicaciones activas.")
         return
 
-    ubicacion_options = [""] + ubicaciones["codigo_ubicacion"].astype(str).tolist()
-    origen = st.selectbox("Ubicación de origen", ubicacion_options, key="rf_transfer_origen")
+    origen = scan_text_input(
+        "Ubicación de origen",
+        key="rf_transfer_origen",
+        placeholder="Escanea o escribe ubicación origen",
+        button_label="Escanear ubicación origen",
+        uppercase=True,
+    ).strip().upper()
+    
     if not origen:
-        st.info("Selecciona una ubicación origen para ver códigos disponibles.")
+        st.info("Escanea o ingresa una ubicación origen para ver códigos disponibles.")
+        return
+    
+    origen_row = ubicaciones[
+        ubicaciones["codigo_ubicacion"].astype(str).str.upper() == origen
+    ]
+    
+    if origen_row.empty:
+        st.error("La ubicación origen no existe o está inactiva.")
         return
 
     stock_origen = rf_get_stock_por_ubicacion(origen)
