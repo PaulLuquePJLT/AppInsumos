@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from src.time_utils import local_today
 import time
 from typing import Any
 
@@ -32,6 +33,7 @@ from src.rf_queries import (
     rf_get_ubicaciones_activas,
 )
 from src.rf_theme import apply_rf_theme, load_rf_icon, logo_img, render_rf_logo_sidebar, render_rf_product_card
+from src.rf_scanner import scanner_text_input
 from src.session import (
     clear_auth_session,
     current_user,
@@ -408,7 +410,7 @@ def render_ingresos() -> None:
 
     with tab_header:
         _, id_proveedor = _provider_selectbox()
-        st.date_input("Fecha de ingreso", value=date.today(), key="rf_header_fecha")
+        st.date_input("Fecha de ingreso", value=local_today(), key="rf_header_fecha")
         st.text_input("Documento de referencia", key="rf_header_documento", placeholder="Guía, factura, OC, etc.")
         st.text_area("Texto de cabecera", key="rf_header_texto", placeholder="Opcional")
         st.session_state.rf_header_id_proveedor = id_proveedor
@@ -419,10 +421,11 @@ def render_ingresos() -> None:
             st.error("No existe la ubicación stage B1.RE.01 activa. Ejecuta la migración RF o crea la ubicación.")
             st.stop()
 
-        scanned_code = st.text_input(
+        scanned_code = scanner_text_input(
             "Escanear SKU o EAN",
             key="rf_scan_codigo",
             placeholder="Escanea o ingresa SKU/EAN",
+            uppercase=True,
         ).strip()
 
         product = rf_find_product_by_code(scanned_code) if scanned_code else None
@@ -512,7 +515,7 @@ def _confirm_ingreso() -> None:
     try:
         id_movimiento = confirmar_ingreso_rf(
             id_proveedor=int(id_proveedor),
-            fecha_ingreso=st.session_state.get("rf_header_fecha", date.today()),
+            fecha_ingreso=st.session_state.get("rf_header_fecha", local_today()),
             documento_referencia=str(st.session_state.get("rf_header_documento", "")).strip(),
             texto_cabecera=str(st.session_state.get("rf_header_texto", "")).strip(),
             id_usuario=current_user_id(),
@@ -801,10 +804,11 @@ def render_transferencia() -> None:
         unsafe_allow_html=True,
     )
 
-    destino = st.text_input(
+    destino = scanner_text_input(
         "Ubicación destino",
         key="rf_transfer_destino",
         placeholder="Escanea o escribe ubicación destino",
+        uppercase=True,
     ).strip().upper()
     cantidad = st.text_input("Cantidad", key="rf_transfer_cantidad", placeholder="Cantidad parcial o total")
 
@@ -877,8 +881,8 @@ def _render_confirm_transfer_dialog(stock_lote: pd.Series, destino: str, cantida
 
 
 def render_stock() -> None:
-    code = st.text_input("Escanear o buscar", placeholder="SKU / EAN / descripción")
-    ubicacion = st.text_input("Ubicación", placeholder="Código de ubicación opcional")
+    code = scanner_text_input("Escanear o buscar", key="rf_stock_code_input", placeholder="SKU / EAN / descripción", uppercase=True)
+    ubicacion = scanner_text_input("Ubicación", key="rf_stock_ubicacion_input", placeholder="Código de ubicación opcional", uppercase=True)
     if st.button("Consultar", type="primary", use_container_width=True):
         st.session_state.rf_stock_query = code.strip()
         st.session_state.rf_stock_ubicacion = ubicacion.strip()
