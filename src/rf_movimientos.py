@@ -45,7 +45,13 @@ def confirmar_ingreso_rf(
 
 def confirmar_tarea_picking_rf(id_picking_detalle: int, id_usuario: int) -> dict:
     """Atiende una sola tarea de picking usando la lógica de escritorio."""
-    return atender_tareas_picking([int(id_picking_detalle)], id_usuario=int(id_usuario), observacion="Atención RF")
+    return atender_tareas_picking(
+        [int(id_picking_detalle)],
+        id_usuario=int(id_usuario),
+        observacion="Atención RF",
+        requiere_aprobacion_admin=True,
+        origen_atencion="RF",
+    )
 
 
 def confirmar_transferencia_rf(
