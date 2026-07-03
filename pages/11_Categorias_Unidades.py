@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from src.ui_filters import filter_bulk_dataframe
+
 from src.bulk_utils import (
     add_error,
     build_excel_template,
@@ -400,7 +402,12 @@ with tabs[7]:
     if categorias.empty:
         st.info("No hay categorías registradas.")
     else:
-        editable = categorias[["id_categoria", "nombre_categoria", "descripcion", "activo"]].copy()
+        categorias_filtradas = filter_bulk_dataframe(
+            categorias,
+            key_prefix="categorias_mod_masiva",
+            text_columns=["nombre_categoria", "descripcion"],
+        )
+        editable = categorias_filtradas[["id_categoria", "nombre_categoria", "descripcion", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
@@ -425,7 +432,12 @@ with tabs[8]:
     if unidades.empty:
         st.info("No hay unidades registradas.")
     else:
-        editable = unidades[["id_unidad", "codigo_unidad", "nombre_unidad", "activo"]].copy()
+        unidades_filtradas = filter_bulk_dataframe(
+            unidades,
+            key_prefix="unidades_mod_masiva",
+            text_columns=["codigo_unidad", "nombre_unidad"],
+        )
+        editable = unidades_filtradas[["id_unidad", "codigo_unidad", "nombre_unidad", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
