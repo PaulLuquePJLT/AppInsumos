@@ -1,4 +1,5 @@
 from datetime import date
+from src.time_utils import local_today
 
 import streamlit as st
 
@@ -8,9 +9,9 @@ st.title("Movimientos")
 st.caption("Por defecto se muestran solo los movimientos del día. Usa los filtros y presiona Consultar.")
 
 if "mov_fecha_inicio" not in st.session_state:
-    st.session_state.mov_fecha_inicio = date.today()
+    st.session_state.mov_fecha_inicio = local_today()
 if "mov_fecha_fin" not in st.session_state:
-    st.session_state.mov_fecha_fin = date.today()
+    st.session_state.mov_fecha_fin = local_today()
 if "mov_tipo" not in st.session_state:
     st.session_state.mov_tipo = ""
 if "mov_cuenta" not in st.session_state:
