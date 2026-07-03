@@ -108,12 +108,18 @@ st.markdown('<div class="wms-card"><div class="wms-card-title">Filtros</div>', u
 
 if not mov.empty and mov["fecha"].notna().any():
     max_date = max(mov["fecha"].dropna())
-    min_date = max_date - timedelta(days=1)
     available_min_date = min(mov["fecha"].dropna())
+    min_date = max(available_min_date, max_date - timedelta(days=1))
 else:
     max_date = date.today()
-    min_date = max_date - timedelta(days=1)
     available_min_date = max_date - timedelta(days=365)
+    min_date = max_date - timedelta(days=1)
+
+# Streamlit exige que el valor inicial esté dentro del rango min/max.
+if min_date < available_min_date:
+    min_date = available_min_date
+if min_date > max_date:
+    min_date = max_date
 
 col1, col2, col3, col4 = st.columns([1.25, 1, 1.2, 1])
 with col1:
