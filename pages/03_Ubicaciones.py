@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from src.ui_filters import filter_bulk_dataframe
+from src.ui_filters import render_multicriteria_filter
 
 from src.bulk_utils import (
     add_error,
@@ -311,12 +311,15 @@ with tabs[7]:
     if zonas_todas.empty:
         st.info("No hay zonas registradas.")
     else:
-        zonas_filtradas = filter_bulk_dataframe(
-            zonas_todas,
+        editable = zonas_todas[["id_zona", "codigo_zona", "nombre_zona", "descripcion", "activo"]].copy()
+        editable = render_multicriteria_filter(
+            editable,
+            [
+                {"column": "codigo_zona", "label": "Filtrar por código(s) de zona", "mode": "exact", "placeholder": "Pega códigos de zona"},
+                {"column": "nombre_zona", "label": "Filtrar por nombre(s)", "mode": "contains", "placeholder": "Pega nombres o palabras"},
+            ],
             key_prefix="zonas_mod_masiva",
-            text_columns=["codigo_zona", "nombre_zona", "descripcion"],
         )
-        editable = zonas_filtradas[["id_zona", "codigo_zona", "nombre_zona", "descripcion", "activo"]].copy()
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
@@ -343,15 +346,21 @@ with tabs[8]:
     elif zonas.empty:
         st.warning("No hay zonas activas para actualizar ubicaciones.")
     else:
-        ubicaciones_filtradas = filter_bulk_dataframe(
-            ubicaciones,
-            key_prefix="ubicaciones_mod_masiva",
-            text_columns=["codigo_ubicacion", "codigo_zona", "tipo_ubicacion", "pasillo", "rack", "nivel", "posicion"],
-        )
-        editable = ubicaciones_filtradas[[
+        editable = ubicaciones[[
             "id_ubicacion", "codigo_ubicacion", "codigo_zona", "tipo_ubicacion", "pasillo", "rack", "nivel",
             "posicion", "capacidad_maxima", "secuencia", "es_surtible", "es_stage", "activo"
         ]].copy()
+        editable = render_multicriteria_filter(
+            editable,
+            [
+                {"column": "codigo_ubicacion", "label": "Filtrar por ubicación(es)", "mode": "exact", "placeholder": "Pega códigos de ubicación desde Excel"},
+                {"column": "codigo_zona", "label": "Filtrar por zona(s)", "mode": "exact", "placeholder": "Pega códigos de zona"},
+                {"column": "tipo_ubicacion", "label": "Filtrar por tipo(s)", "mode": "contains", "placeholder": "Rack, Armario, Stage..."},
+                {"column": "pasillo", "label": "Filtrar por pasillo(s)", "mode": "exact", "placeholder": "Pega pasillos"},
+                {"column": "rack", "label": "Filtrar por rack/armario(s)", "mode": "exact", "placeholder": "Pega racks"},
+            ],
+            key_prefix="ubicaciones_mod_masiva",
+        )
         edited_mass = st.data_editor(
             editable,
             use_container_width=True,
