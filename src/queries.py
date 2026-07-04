@@ -1826,3 +1826,87 @@ def get_dashboard_movimientos():
         return read_dataframe(query_view)
     except Exception:
         return read_dataframe(query_fallback)
+
+# ---------------------------------------------------------------------------
+# Salida Ajuste
+# ---------------------------------------------------------------------------
+
+def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
+    """Stock físico disponible para salida por ajuste.
+
+    `cuenta` se acepta por compatibilidad con la página, pero no aplica al almacén físico.
+    """
+    filters = [
+        "ISNULL(cantidad_actual, 0) > 0",
+        "ISNULL(cantidad_disponible, cantidad_actual) > 0",
+    ]
+    params: dict = {}
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+    if ubicacion:
+        filters.append("(codigo_ubicacion LIKE '%' + :ubicacion + '%' OR codigo_zona LIKE '%' + :ubicacion + '%')")
+        params["ubicacion"] = ubicacion
+
+    where_sql = " AND ".join(filters)
+    return read_dataframe(f"""
+        SELECT
+            CAST(0 AS bit) AS seleccionar,
+            CAST(0 AS decimal(18,2)) AS cantidad_ajuste,
+            id_producto,
+            sku,
+            nombre_producto,
+            codigo_unidad,
+            codigo_zona,
+            id_ubicacion,
+            codigo_ubicacion,
+            tipo_ubicacion,
+            lote,
+            CAST(ISNULL(cantidad_actual, 0) AS decimal(18,2)) AS cantidad_actual,
+            CAST(ISNULL(cantidad_en_picking, 0) AS decimal(18,2)) AS cantidad_en_picking,
+            CAST(ISNULL(cantidad_disponible, cantidad_actual) AS decimal(18,2)) AS cantidad_disponible,
+            CAST(ISNULL(precio_unitario, 0) AS decimal(18,4)) AS precio_unitario,
+            CAST(ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS decimal(18,2)) AS valor_stock_disponible
+        FROM dbo.vw_stock_por_ubicacion
+        WHERE {where_sql}
+        ORDER BY codigo_ubicacion, sku, lote
+    """, params)
+
+
+def get_stock_ajuste_cuentas(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
+    """Stock neto por cuenta disponible para salida por ajuste."""
+    aplicar_vencimientos_stock_cuenta()
+    filters = ["ISNULL(cantidad_neta, 0) > 0"]
+    params: dict = {}
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+    if cuenta:
+        filters.append("(codigo_cuenta LIKE '%' + :cuenta + '%' OR nombre_cuenta LIKE '%' + :cuenta + '%')")
+        params["cuenta"] = cuenta
+
+    where_sql = " AND ".join(filters)
+    return read_dataframe(f"""
+        SELECT
+            CAST(0 AS bit) AS seleccionar,
+            CAST(0 AS decimal(18,2)) AS cantidad_ajuste,
+            id_cuenta,
+            codigo_cuenta,
+            nombre_cuenta,
+            id_producto,
+            sku,
+            nombre_producto,
+            codigo_unidad,
+            CAST(ISNULL(cantidad_entregada, 0) AS decimal(18,2)) AS cantidad_entregada,
+            CAST(ISNULL(cantidad_devuelta, 0) AS decimal(18,2)) AS cantidad_devuelta,
+            CAST(ISNULL(cantidad_consumida_vida_util, 0) AS decimal(18,2)) AS cantidad_consumida_vida_util,
+            CAST(ISNULL(cantidad_ajuste_salida, 0) AS decimal(18,2)) AS cantidad_ajuste_salida,
+            CAST(ISNULL(cantidad_neta, 0) AS decimal(18,2)) AS cantidad_neta,
+            CAST(ISNULL(precio_unitario, 0) AS decimal(18,4)) AS precio_unitario,
+            CAST(ISNULL(valor_stock_cuenta, ISNULL(cantidad_neta, 0) * ISNULL(precio_unitario, 0)) AS decimal(18,2)) AS valor_stock_cuenta
+        FROM dbo.vw_stock_por_cuenta
+        WHERE {where_sql}
+        ORDER BY nombre_cuenta, sku
+    """, params)
