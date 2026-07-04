@@ -1739,3 +1739,213 @@ def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usu
             )
 
     return int(id_movimiento)
+
+# ---------------------------------------------------------------------------
+# Salida Ajuste
+# ---------------------------------------------------------------------------
+
+def registrar_salida_ajuste_almacen(
+    items: list[dict],
+    id_usuario: int,
+    referencia: str | None = None,
+    observacion: str | None = None,
+) -> int:
+    """Descuenta stock físico de almacén y registra movimiento SALIDA_AJUSTE."""
+    if not items:
+        raise ValueError("Selecciona al menos una línea de stock de almacén.")
+
+    with get_engine().begin() as conn:
+        id_movimiento = conn.execute(
+            text("""
+                INSERT INTO movimientos
+                    (tipo_movimiento, fecha_movimiento, referencia, observacion, id_usuario, estado)
+                OUTPUT INSERTED.id_movimiento
+                VALUES
+                    ('SALIDA_AJUSTE', dbo.fn_now_bogota_lima(), :referencia, :observacion, :id_usuario, 'CONFIRMADO')
+            """),
+            {
+                "referencia": referencia,
+                "observacion": observacion,
+                "id_usuario": int(id_usuario),
+            },
+        ).scalar_one()
+
+        for item in items:
+            id_producto = int(item["id_producto"])
+            id_ubicacion = int(item["id_ubicacion"])
+            cantidad = float(item["cantidad"])
+            lote = item.get("lote") or None
+            texto_item = item.get("texto_item") or "Salida ajuste almacén"
+
+            disponible = conn.execute(
+                text("""
+                    SELECT CAST(ISNULL(cantidad_actual, 0) - ISNULL(cantidad_en_picking, 0) AS DECIMAL(18,2))
+                    FROM stock_ubicacion WITH (UPDLOCK, HOLDLOCK)
+                    WHERE id_producto = :id_producto
+                      AND id_ubicacion = :id_ubicacion
+                      AND ISNULL(lote, '') = ISNULL(:lote, '')
+                """),
+                {
+                    "id_producto": id_producto,
+                    "id_ubicacion": id_ubicacion,
+                    "lote": lote,
+                },
+            ).scalar()
+
+            if disponible is None or float(disponible) < cantidad:
+                raise ValueError(
+                    f"Stock insuficiente para producto {id_producto} en ubicación {id_ubicacion}. "
+                    f"Disponible: {disponible or 0}, solicitado: {cantidad}."
+                )
+
+            conn.execute(
+                text("""
+                    INSERT INTO movimiento_detalle
+                        (id_movimiento, id_producto, id_ubicacion_origen, cantidad, lote, observacion)
+                    VALUES
+                        (:id_movimiento, :id_producto, :id_ubicacion, :cantidad, :lote, :observacion)
+                """),
+                {
+                    "id_movimiento": int(id_movimiento),
+                    "id_producto": id_producto,
+                    "id_ubicacion": id_ubicacion,
+                    "cantidad": cantidad,
+                    "lote": lote,
+                    "observacion": texto_item,
+                },
+            )
+
+            conn.execute(
+                text("""
+                    UPDATE stock_ubicacion
+                    SET cantidad_actual = cantidad_actual - :cantidad,
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                    WHERE id_producto = :id_producto
+                      AND id_ubicacion = :id_ubicacion
+                      AND ISNULL(lote, '') = ISNULL(:lote, '')
+                """),
+                {
+                    "cantidad": cantidad,
+                    "id_producto": id_producto,
+                    "id_ubicacion": id_ubicacion,
+                    "lote": lote,
+                },
+            )
+
+            conn.execute(
+                text("""
+                    DELETE FROM stock_ubicacion
+                    WHERE id_producto = :id_producto
+                      AND id_ubicacion = :id_ubicacion
+                      AND ISNULL(lote, '') = ISNULL(:lote, '')
+                      AND ISNULL(cantidad_actual, 0) <= 0
+                      AND ISNULL(cantidad_en_picking, 0) <= 0
+                """),
+                {
+                    "id_producto": id_producto,
+                    "id_ubicacion": id_ubicacion,
+                    "lote": lote,
+                },
+            )
+
+    return int(id_movimiento)
+
+
+def registrar_salida_ajuste_cuentas(
+    items: list[dict],
+    id_usuario: int,
+    referencia: str | None = None,
+    observacion: str | None = None,
+) -> list[int]:
+    """Descuenta stock neto de cuentas logísticas y registra SALIDA_AJUSTE.
+
+    Se crea una cabecera de movimiento por cuenta para mantener trazabilidad.
+    """
+    if not items:
+        raise ValueError("Selecciona al menos una línea de stock de cuenta.")
+
+    movements: list[int] = []
+    grouped: dict[int, list[dict]] = {}
+    for item in items:
+        grouped.setdefault(int(item["id_cuenta"]), []).append(item)
+
+    with get_engine().begin() as conn:
+        for id_cuenta, group_items in grouped.items():
+            id_movimiento = conn.execute(
+                text("""
+                    INSERT INTO movimientos
+                        (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
+                    OUTPUT INSERTED.id_movimiento
+                    VALUES
+                        ('SALIDA_AJUSTE', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
+                """),
+                {
+                    "id_cuenta": int(id_cuenta),
+                    "referencia": referencia,
+                    "observacion": observacion,
+                    "id_usuario": int(id_usuario),
+                },
+            ).scalar_one()
+            movements.append(int(id_movimiento))
+
+            for item in group_items:
+                id_producto = int(item["id_producto"])
+                cantidad = float(item["cantidad"])
+                texto_item = item.get("texto_item") or "Salida ajuste cuenta"
+
+                disponible = conn.execute(
+                    text("""
+                        SELECT CAST(
+                            ISNULL(cantidad_entregada, 0)
+                            - ISNULL(cantidad_devuelta, 0)
+                            - ISNULL(cantidad_consumida_vida_util, 0)
+                            - ISNULL(cantidad_ajuste_salida, 0)
+                            AS DECIMAL(18,2)
+                        )
+                        FROM stock_cuenta WITH (UPDLOCK, HOLDLOCK)
+                        WHERE id_cuenta = :id_cuenta
+                          AND id_producto = :id_producto
+                    """),
+                    {
+                        "id_cuenta": int(id_cuenta),
+                        "id_producto": id_producto,
+                    },
+                ).scalar()
+
+                if disponible is None or float(disponible) < cantidad:
+                    raise ValueError(
+                        f"Stock insuficiente en cuenta {id_cuenta} para producto {id_producto}. "
+                        f"Disponible: {disponible or 0}, solicitado: {cantidad}."
+                    )
+
+                conn.execute(
+                    text("""
+                        INSERT INTO movimiento_detalle
+                            (id_movimiento, id_producto, cantidad, observacion)
+                        VALUES
+                            (:id_movimiento, :id_producto, :cantidad, :observacion)
+                    """),
+                    {
+                        "id_movimiento": int(id_movimiento),
+                        "id_producto": id_producto,
+                        "cantidad": cantidad,
+                        "observacion": texto_item,
+                    },
+                )
+
+                conn.execute(
+                    text("""
+                        UPDATE stock_cuenta
+                        SET cantidad_ajuste_salida = ISNULL(cantidad_ajuste_salida, 0) + :cantidad,
+                            fecha_actualizacion = dbo.fn_now_bogota_lima()
+                        WHERE id_cuenta = :id_cuenta
+                          AND id_producto = :id_producto
+                    """),
+                    {
+                        "cantidad": cantidad,
+                        "id_cuenta": int(id_cuenta),
+                        "id_producto": id_producto,
+                    },
+                )
+
+    return movements
