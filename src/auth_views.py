@@ -1,6 +1,13 @@
 import streamlit as st
 
-from src.auth import authenticate_user, request_password_reset, reset_password_with_code
+from src.auth import (
+    AccountLockedError,
+    InvalidCredentialsError,
+    UNKNOWN_LOGIN_MAX_ATTEMPTS,
+    authenticate_user,
+    request_password_reset,
+    reset_password_with_code,
+)
 from src.theme import apply_login_theme, logo_img_html
 
 
@@ -52,8 +59,30 @@ def render_login_page():
 
         if ingresar:
             login_exception = False
+            handled_auth_failure = False
             try:
                 user = authenticate_user(usuario, password)
+            except AccountLockedError:
+                handled_auth_failure = True
+                st.session_state.reset_identifier = str(usuario or "").strip()
+                st.error(
+                    "La cuenta fue bloqueada por intentos fallidos. "
+                    "Para desbloquearla, usa la opción ¿Olvidaste tu contraseña? y restablece tu clave."
+                )
+                user = None
+            except InvalidCredentialsError as exc:
+                handled_auth_failure = True
+                user = None
+                if exc.remaining_attempts > 0:
+                    st.error(
+                        "Usuario o contraseña incorrectos. "
+                        f"Intentos restantes antes del bloqueo: {exc.remaining_attempts}."
+                    )
+                else:
+                    st.error(
+                        "La cuenta fue bloqueada por intentos fallidos. "
+                        "Restablece tu contraseña para desbloquearla."
+                    )
             except Exception as exc:
                 login_exception = True
                 st.warning(
@@ -65,12 +94,23 @@ def render_login_page():
                 user = None
 
             if user:
+                st.session_state.auth_failed_unknown_count = 0
                 st.session_state.authenticated = True
                 st.session_state.auth_user = user
                 st.session_state["last_activity_ts"] = __import__("time").time()
                 st.rerun()
-            elif not login_exception:
-                st.error("Usuario o contraseña incorrectos.")
+            elif not login_exception and not handled_auth_failure:
+                if not str(usuario or "").strip() or not str(password or ""):
+                    st.error("Ingresa usuario/correo y contraseña.")
+                else:
+                    st.session_state.auth_failed_unknown_count = int(st.session_state.get("auth_failed_unknown_count", 0)) + 1
+                    if st.session_state.auth_failed_unknown_count >= UNKNOWN_LOGIN_MAX_ATTEMPTS:
+                        st.error(
+                            "Se alcanzó el máximo de intentos de ingreso en esta sesión. "
+                            "Usa la recuperación de contraseña o vuelve a intentarlo más tarde."
+                        )
+                    else:
+                        st.error("Usuario o contraseña incorrectos.")
 
     elif st.session_state.auth_mode == "forgot_request":
         with st.form("forgot_request_form"):
