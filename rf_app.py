@@ -7,7 +7,14 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from src.auth import authenticate_user, request_password_reset, reset_password_with_code
+from src.auth import (
+    AccountLockedError,
+    InvalidCredentialsError,
+    UNKNOWN_LOGIN_MAX_ATTEMPTS,
+    authenticate_user,
+    request_password_reset,
+    reset_password_with_code,
+)
 
 try:
     from src.db import reset_engine_pool
@@ -203,15 +210,34 @@ def render_login() -> None:
             forgot = st.button("¿Olvidaste tu contraseña?", use_container_width=True, key="rf_login_forgot_btn")
 
         if ingresar:
+            handled_auth_failure = False
+            login_exception = False
             try:
                 user = authenticate_user(usuario, password)
+            except AccountLockedError:
+                handled_auth_failure = True
+                st.session_state.rf_reset_identifier = str(usuario or "").strip()
+                st.error(
+                    "Cuenta bloqueada por intentos fallidos. "
+                    "Usa ¿Olvidaste tu contraseña? para desbloquearla."
+                )
+                user = None
+            except InvalidCredentialsError as exc:
+                handled_auth_failure = True
+                user = None
+                if exc.remaining_attempts > 0:
+                    st.error(f"Credenciales incorrectas. Intentos restantes: {exc.remaining_attempts}.")
+                else:
+                    st.error("Cuenta bloqueada. Restablece tu contraseña para desbloquearla.")
             except Exception as exc:
+                login_exception = True
                 st.error("No se pudo validar el usuario. Si Azure SQL estaba pausado, espera unos segundos e intenta nuevamente.")
                 with st.expander("Detalle técnico"):
                     st.code(str(exc))
                 user = None
 
             if user:
+                st.session_state.rf_failed_unknown_count = 0
                 role = _normalize_role(user.get("rol"))
                 if role not in ALLOWED_ROLES:
                     st.error("Este usuario no tiene rol Operario para usar la app RF.")
@@ -219,8 +245,15 @@ def render_login() -> None:
                     _set_auth_user(user)
                     st.session_state.rf_last_activity_ts = time.time()
                     st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos.")
+            elif not login_exception and not handled_auth_failure:
+                if not str(usuario or "").strip() or not str(password or ""):
+                    st.error("Ingresa usuario/correo y contraseña.")
+                else:
+                    st.session_state.rf_failed_unknown_count = int(st.session_state.get("rf_failed_unknown_count", 0)) + 1
+                    if st.session_state.rf_failed_unknown_count >= UNKNOWN_LOGIN_MAX_ATTEMPTS:
+                        st.error("Se alcanzó el máximo de intentos en esta sesión. Usa recuperación de contraseña.")
+                    else:
+                        st.error("Usuario o contraseña incorrectos.")
 
         if forgot:
             st.session_state.rf_auth_mode = "forgot_request"
