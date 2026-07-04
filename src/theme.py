@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import re
 from io import BytesIO
 from pathlib import Path
@@ -678,6 +679,77 @@ def dataframe_to_report_xlsx(data, table_name: str = "Tabla") -> bytes:
     return output.getvalue()
 
 
+
+
+REPORT_NAME_BY_PAGE = {
+    "01_Dashboard": "Dashboard",
+    "02_Productos": "Productos",
+    "03_Ubicaciones": "Ubicaciones",
+    "04_Entrada_Stock": "Entrada_Stock",
+    "05_Salida_Cuenta": "Salida_Cuenta",
+    "06_Transferencias": "Transferencias",
+    "07_Stock": "Stock",
+    "08_Movimientos": "Movimientos",
+    "09_Stock_Cuentas": "Stock_Cuentas",
+    "10_Areas_Logisticas": "Areas_Logisticas",
+    "11_Categorias_Unidades": "Categorias_Unidades",
+    "12_Usuarios": "Usuarios",
+    "13_Proveedores": "Proveedores",
+    "14_Pedidos": "Pedidos",
+    "15_Picking": "Picking",
+    "16_Atencion_Picking": "Atencion_Picking",
+    "17_Salida_Ajuste": "Salida_Ajuste",
+    "18_Terminos_Uso": "Terminos_Uso",
+    "19_Politica_Privacidad": "Politica_Privacidad",
+}
+
+
+def _nice_report_name_from_key(key) -> str | None:
+    """Convierte keys de widgets en nombres legibles para reportes.
+
+    Si una tabla usa key="stock_por_ubicacion", el archivo será
+    Report_Stock_Por_Ubicacion_ddmmyyyy_hhmmss.xlsx.
+    """
+    if key is None:
+        return None
+
+    text = str(key).strip()
+    if not text:
+        return None
+
+    # Evitar keys internas de los botones de descarga automática.
+    if text.startswith("wms_auto_xlsx_"):
+        return None
+
+    text = re.sub(r"^(df|tabla|table|grid|editor)_", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ]+", "_", text).strip("_")
+    if not text:
+        return None
+    return "_".join(part.capitalize() for part in text.split("_") if part)
+
+
+def infer_report_name(explicit_key=None, fallback: str = "Tabla_WMS") -> str:
+    """Infiere el nombre del reporte desde la página que renderiza la tabla.
+
+    Si no se pasa key en st.dataframe/st.data_editor, usa el archivo de página,
+    por ejemplo pages/07_Stock.py -> Stock.
+    """
+    key_name = _nice_report_name_from_key(explicit_key)
+    if key_name:
+        return key_name
+
+    try:
+        for frame in inspect.stack():
+            filename = frame.filename.replace("\\", "/")
+            if "/pages/" in filename and filename.endswith(".py"):
+                stem = Path(filename).stem
+                return REPORT_NAME_BY_PAGE.get(stem, re.sub(r"^\d+_", "", stem))
+    except Exception:
+        pass
+
+    return fallback
+
+
 def report_file_name(table_name: str = "Tabla") -> str:
     stamp = local_now().strftime("%d%m%Y_%H%M%S")
     return f"Report_{_sanitize_report_name(table_name)}_{stamp}.xlsx"
@@ -728,7 +800,9 @@ def enable_auto_csv_downloads() -> None:
 
             counter = st.session_state.get("_wms_xlsx_export_counter", 0) + 1
             st.session_state["_wms_xlsx_export_counter"] = counter
-            table_name = _sanitize_report_name(explicit_key or prefix or f"Tabla_{counter}")
+            table_name = _sanitize_report_name(
+                infer_report_name(explicit_key=explicit_key, fallback=prefix or f"Tabla_{counter}")
+            )
             st.download_button(
                 "Descargar XLSX",
                 data=dataframe_to_report_xlsx(df, table_name),
