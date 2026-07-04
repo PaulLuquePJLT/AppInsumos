@@ -28,9 +28,9 @@ with st.form("form_filtros_movimientos"):
     with col3:
         tipo = st.selectbox(
             "Tipo de movimiento",
-            ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA"],
-            index=["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA"].index(st.session_state.mov_tipo)
-            if st.session_state.mov_tipo in ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA"] else 0,
+            ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"],
+            index=["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"].index(st.session_state.mov_tipo)
+            if st.session_state.mov_tipo in ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"] else 0,
             format_func=lambda x: "Todos" if x == "" else x,
         )
 
