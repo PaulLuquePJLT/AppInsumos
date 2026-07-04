@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import base64
+import re
+from io import BytesIO
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 import streamlit as st
+
+from src.time_utils import local_now
 
 
 PALETTE = {
@@ -600,19 +604,119 @@ def render_sidebar_nav(groups: Iterable[tuple[str, list[dict]]]) -> None:
                 )
 
 
-def enable_auto_csv_downloads() -> None:
-    """Agrega botón CSV después de cada tabla st.dataframe/st.data_editor.
+def _sanitize_report_name(name: str) -> str:
+    name = str(name or "Tabla").strip()
+    name = re.sub(r"[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ_-]+", "_", name)
+    name = re.sub(r"_+", "_", name).strip("_")
+    return name or "Tabla"
 
-    Esto permite exportar todas las tablas sin modificar manualmente cada vista.
-    En tablas editables, exporta el estado devuelto por st.data_editor.
+
+def dataframe_to_report_xlsx(data, table_name: str = "Tabla") -> bytes:
+    """Convierte un DataFrame a XLSX con el estándar de reportes WMS."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+    except Exception as exc:
+        raise RuntimeError("openpyxl no está disponible para generar el Excel.") from exc
+
+    if isinstance(data, pd.DataFrame):
+        df = data.copy()
+    else:
+        df = pd.DataFrame(data)
+
+    # Evitar errores al exportar tipos no serializables.
+    df = df.copy()
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.strftime("%d/%m/%Y %H:%M:%S")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = _sanitize_report_name(table_name)[:31] or "Reporte"
+
+    font_body = Font(name="Aptos Narrow", size=9)
+    font_header = Font(name="Aptos Narrow", size=9, bold=True)
+    header_fill = PatternFill("solid", fgColor="D0D0D0")
+    thin_gray = Side(style="thin", color="A6A6A6")
+    header_border = Border(left=thin_gray, right=thin_gray, top=thin_gray, bottom=thin_gray)
+    align_center = Alignment(horizontal="center", vertical="center")
+
+    headers = [str(c) for c in df.columns]
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = font_header
+        cell.fill = header_fill
+        cell.border = header_border
+        cell.alignment = align_center
+
+    for row_idx, row in enumerate(df.itertuples(index=False), start=2):
+        for col_idx, value in enumerate(row, start=1):
+            if pd.isna(value):
+                value = ""
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.font = font_body
+            cell.alignment = align_center
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    for col_idx, col_name in enumerate(headers, start=1):
+        values = [col_name]
+        if not df.empty:
+            values.extend(df.iloc[:, col_idx - 1].astype(str).replace("nan", "").tolist())
+        max_len = max((len(str(v)) for v in values), default=8)
+        width = min(max(max_len + 2, 8), 45)
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.alignment = align_center
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def report_file_name(table_name: str = "Tabla") -> str:
+    stamp = local_now().strftime("%d%m%Y_%H%M%S")
+    return f"Report_{_sanitize_report_name(table_name)}_{stamp}.xlsx"
+
+
+def download_report_xlsx_button(data, table_name: str, label: str = "Descargar XLSX", key: str | None = None) -> None:
+    try:
+        if isinstance(data, pd.DataFrame):
+            df = data.copy()
+        else:
+            df = pd.DataFrame(data)
+        if df.empty:
+            return
+        st.download_button(
+            label,
+            data=dataframe_to_report_xlsx(df, table_name),
+            file_name=report_file_name(table_name),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=key,
+            icon=":material/download:",
+        )
+    except Exception as exc:
+        st.warning(f"No se pudo preparar la descarga XLSX: {exc}")
+
+
+def enable_auto_csv_downloads() -> None:
+    """Agrega botón XLSX después de cada tabla st.dataframe/st.data_editor.
+
+    Se mantiene el nombre de la función por compatibilidad con app.py.
+    El formato de archivo cumple el estándar:
+    Report_[NombreTabla]_[ddmmyyyy_hhmmss].xlsx
     """
-    if getattr(st, "_wms_csv_exporter_enabled", False):
+    if getattr(st, "_wms_xlsx_exporter_enabled", False):
         return
 
     original_dataframe = st.dataframe
     original_data_editor = st.data_editor
 
-    def _download_df(data, prefix: str) -> None:
+    def _download_df(data, prefix: str, explicit_key=None) -> None:
         try:
             if isinstance(data, pd.DataFrame):
                 df = data.copy()
@@ -622,33 +726,33 @@ def enable_auto_csv_downloads() -> None:
             if df.empty:
                 return
 
-            counter = st.session_state.get("_wms_csv_export_counter", 0) + 1
-            st.session_state["_wms_csv_export_counter"] = counter
+            counter = st.session_state.get("_wms_xlsx_export_counter", 0) + 1
+            st.session_state["_wms_xlsx_export_counter"] = counter
+            table_name = _sanitize_report_name(explicit_key or prefix or f"Tabla_{counter}")
             st.download_button(
-                "Descargar CSV",
-                data=df.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"{prefix}_{counter}.csv",
-                mime="text/csv",
-                key=f"wms_auto_csv_{prefix}_{counter}",
+                "Descargar XLSX",
+                data=dataframe_to_report_xlsx(df, table_name),
+                file_name=report_file_name(table_name),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"wms_auto_xlsx_{table_name}_{counter}",
                 icon=":material/download:",
             )
         except Exception:
             pass
 
-    def dataframe_with_csv(data=None, *args, **kwargs):
+    def dataframe_with_xlsx(data=None, *args, **kwargs):
         result = original_dataframe(data, *args, **kwargs)
-        _download_df(data, "tabla_wms")
+        _download_df(data, "Tabla_WMS", kwargs.get("key"))
         return result
 
-    def data_editor_with_csv(data=None, *args, **kwargs):
+    def data_editor_with_xlsx(data=None, *args, **kwargs):
         result = original_data_editor(data, *args, **kwargs)
-        _download_df(result if result is not None else data, "editor_wms")
+        _download_df(result if result is not None else data, "Editor_WMS", kwargs.get("key"))
         return result
 
-    st.dataframe = dataframe_with_csv
-    st.data_editor = data_editor_with_csv
-    st._wms_csv_exporter_enabled = True
-
+    st.dataframe = dataframe_with_xlsx
+    st.data_editor = data_editor_with_xlsx
+    st._wms_xlsx_exporter_enabled = True
 
 def card(title: str, body_html: str = "") -> None:
     st.markdown(
