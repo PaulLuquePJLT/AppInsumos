@@ -9,14 +9,23 @@ SET XACT_ABORT ON;
    ========================================================== */
 
 /* 1) Asegurar funcion de fecha/hora Bogotá - Lima */
-EXEC(N'
-CREATE OR ALTER FUNCTION dbo.fn_now_bogota_lima()
-RETURNS DATETIME2(0)
-AS
+/* ==========================================================
+   Asegurar función fecha/hora Bogotá - Lima - Perú
+   No usar CREATE OR ALTER ni DROP FUNCTION porque puede estar
+   referenciada por DEFAULT CONSTRAINTS.
+   ========================================================== */
+
+IF OBJECT_ID('dbo.fn_now_bogota_lima', 'FN') IS NULL
 BEGIN
-    RETURN CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), ''-05:00'') AS DATETIME2(0));
-END
-');
+    EXEC(N'
+    CREATE FUNCTION dbo.fn_now_bogota_lima()
+    RETURNS DATETIME2(0)
+    AS
+    BEGIN
+        RETURN CAST(SWITCHOFFSET(SYSDATETIMEOFFSET(), ''-05:00'') AS DATETIME2(0));
+    END
+    ');
+END;
 
 /* 2) Agregar SALIDA_AJUSTE al check constraint de movimientos */
 DECLARE @sql NVARCHAR(MAX) = N'';
