@@ -135,6 +135,7 @@ if is_admin:
                 {"path": "pages/15_Picking.py", "title": "Picking", "icon": ":material/assignment:"},
                 {"path": "pages/16_Atencion_Picking.py", "title": "Atención de Picking", "icon": ":material/task_alt:"},
                 {"path": "pages/05_Salida_Cuenta.py", "title": "Salida Cuenta", "icon": ":material/output:"},
+                {"path": "pages/17_Salida_Ajuste.py", "title": "Salida Ajuste", "icon": ":material/tune:"},
             ],
         ),
         (
@@ -173,6 +174,12 @@ else:
     ])
 
 
+
+LEGAL_PAGES = [
+    {"path": "pages/18_Terminos_Uso.py", "title": "Términos de Uso", "icon": ":material/gavel:"},
+    {"path": "pages/19_Politica_Privacidad.py", "title": "Política de Privacidad", "icon": ":material/privacy_tip:"},
+]
+
 def _page_objects_from_menu(groups: list[tuple[str, list[dict]]]) -> dict:
     pages: dict[str, list] = {}
     for group_name, items in groups:
@@ -195,7 +202,7 @@ def _logout() -> None:
 
 # La navegación se registra en modo oculto para poder controlar totalmente
 # el orden, branding e iconografía del sidebar.
-pg = st.navigation(_page_objects_from_menu(MENU_GROUPS), position="hidden")
+pg = st.navigation(_page_objects_from_menu(MENU_GROUPS + [("Legal", LEGAL_PAGES)]), position="hidden")
 
 with st.sidebar:
     render_sidebar_brand()
@@ -216,6 +223,10 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown("<div style='height:.35rem'></div>", unsafe_allow_html=True)
+    st.page_link("pages/18_Terminos_Uso.py", label="Términos de Uso", icon=":material/gavel:")
+    st.page_link("pages/19_Politica_Privacidad.py", label="Política de Privacidad", icon=":material/privacy_tip:")
 
     if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
         _logout()
