@@ -2,10 +2,32 @@ import streamlit as st
 
 from src.queries import get_stock_por_cuenta
 
-st.title("💼 Stock por cuenta logística")
+st.title("Stock por cuenta logística")
+st.caption("La consulta se ejecuta en Azure SQL con los filtros indicados.")
+
+if "stock_cta_cuenta" not in st.session_state:
+    st.session_state.stock_cta_cuenta = ""
+if "stock_cta_producto" not in st.session_state:
+    st.session_state.stock_cta_producto = ""
+
+with st.form("form_stock_cuentas"):
+    col1, col2, col3 = st.columns([1.2, 1.2, .7])
+    with col1:
+        cuenta = st.text_input("Buscar cuenta", value=st.session_state.stock_cta_cuenta)
+    with col2:
+        producto = st.text_input("Buscar SKU o producto", value=st.session_state.stock_cta_producto)
+    with col3:
+        consultar = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+if consultar:
+    st.session_state.stock_cta_cuenta = cuenta.strip()
+    st.session_state.stock_cta_producto = producto.strip()
 
 try:
-    stock_cuenta = get_stock_por_cuenta()
+    stock_cuenta = get_stock_por_cuenta(
+        cuenta=st.session_state.stock_cta_cuenta,
+        sku=st.session_state.stock_cta_producto,
+    )
 except Exception as exc:
     st.error(
         "No se pudo cargar el stock por cuenta. "
@@ -16,35 +38,12 @@ except Exception as exc:
     st.stop()
 
 if stock_cuenta.empty:
-    st.info("Todavía no hay stock entregado a cuentas logísticas.")
+    st.info("No hay stock de cuenta para los filtros seleccionados.")
     st.stop()
 
-col1, col2 = st.columns(2)
-with col1:
-    cuenta = st.text_input("Buscar cuenta")
-with col2:
-    producto = st.text_input("Buscar SKU o producto")
-
-filtered = stock_cuenta.copy()
-
-if cuenta.strip():
-    value = cuenta.strip().lower()
-    filtered = filtered[
-        filtered["codigo_cuenta"].astype(str).str.lower().str.contains(value, na=False)
-        | filtered["nombre_cuenta"].astype(str).str.lower().str.contains(value, na=False)
-    ]
-
-if producto.strip():
-    value = producto.strip().lower()
-    filtered = filtered[
-        filtered["sku"].astype(str).str.lower().str.contains(value, na=False)
-        | filtered["nombre_producto"].astype(str).str.lower().str.contains(value, na=False)
-    ]
-
 m1, m2, m3 = st.columns(3)
-m1.metric("Registros", len(filtered))
-m2.metric("Total entregado", f"{filtered['cantidad_entregada'].sum():,.2f}")
-m3.metric("Stock neto cuentas", f"{filtered['cantidad_neta'].sum():,.2f}")
+m1.metric("Registros", len(stock_cuenta))
+m2.metric("Total entregado", f"{stock_cuenta['cantidad_entregada'].sum():,.2f}")
+m3.metric("Stock neto cuentas", f"{stock_cuenta['cantidad_neta'].sum():,.2f}")
 
-st.dataframe(filtered, use_container_width=True, hide_index=True)
-
+st.dataframe(stock_cuenta, use_container_width=True, hide_index=True)
