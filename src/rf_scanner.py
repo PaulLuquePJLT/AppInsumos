@@ -57,7 +57,10 @@ def scan_text_input(
     """
     _apply_pending_scan(key, uppercase)
 
-    col_input, col_scan = st.columns([0.88, 0.12], gap="small")
+    # Mantener input + scanner en una sola fila también en mobile.
+    # El CSS usa .rf-scan-button-spacer como marcador para fijar el ancho
+    # del botón y evitar scroll horizontal.
+    col_input, col_scan = st.columns([0.86, 0.14], gap="small")
     with col_input:
         value = st.text_input(
             label,
@@ -68,33 +71,13 @@ def scan_text_input(
         )
     with col_scan:
         st.markdown('<div class="rf-scan-button-spacer"></div>', unsafe_allow_html=True)
-        clicked = _scan_icon_button(key=f"{key}_scanner_btn", help_text=button_label)
-        if clicked:
+        if st.button("📷", key=f"{key}_scanner_btn", help=button_label, use_container_width=True):
             st.session_state[f"{key}_scanner_open"] = True
 
     if st.session_state.get(f"{key}_scanner_open"):
         _render_scanner_panel(target_key=key, title=button_label, uppercase=uppercase)
 
     return str(value or "").upper() if uppercase else str(value or "")
-
-
-def _scan_icon_button(key: str, help_text: str) -> bool:
-    """Botón pequeño de cámara/barcode compatible con distintas versiones de Streamlit."""
-    try:
-        return st.button(
-            "",
-            key=key,
-            help=help_text,
-            use_container_width=True,
-            icon=":material/photo_camera:",
-        )
-    except TypeError:
-        return st.button(
-            "📷",
-            key=key,
-            help=help_text,
-            use_container_width=True,
-        )
 
 
 def _render_scanner_panel(target_key: str, title: str = "Escanear código", uppercase: bool = False) -> None:
