@@ -1451,6 +1451,94 @@ def apply_rf_theme(login: bool = False) -> None:
             padding-top: .38rem !important;
         }}
 
+
+        /* ==========================================================
+           RF scanner inline layout: input + camera button side-by-side
+           on mobile and desktop.
+           ========================================================== */
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) {{
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: flex-end !important;
+            gap: .28rem !important;
+            width: 100% !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:first-child {{
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            width: auto !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:last-child {{
+            flex: 0 0 2.65rem !important;
+            width: 2.65rem !important;
+            min-width: 2.65rem !important;
+            max-width: 2.65rem !important;
+        }}
+
+        .rf-scan-button-spacer {{
+            height: 1.34rem !important;
+            min-height: 1.34rem !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button {{
+            width: 2.65rem !important;
+            min-width: 2.65rem !important;
+            height: 2.48rem !important;
+            min-height: 2.48rem !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border-radius: 11px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: linear-gradient(135deg, var(--rf-teal-dark), var(--rf-teal)) !important;
+            color: #FFFFFF !important;
+            border: 1px solid rgba(14,86,99,.18) !important;
+            box-shadow: 0 8px 18px rgba(14,86,99,.13) !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button p,
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button span,
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button div,
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button svg {{
+            color: #FFFFFF !important;
+            fill: #FFFFFF !important;
+            font-size: 1.05rem !important;
+            line-height: 1 !important;
+            margin: 0 !important;
+        }}
+
+        @media (max-width: 900px) {{
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) {{
+                gap: .22rem !important;
+            }}
+
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:last-child {{
+                flex-basis: 2.50rem !important;
+                width: 2.50rem !important;
+                min-width: 2.50rem !important;
+                max-width: 2.50rem !important;
+            }}
+
+            .rf-scan-button-spacer {{
+                height: 1.20rem !important;
+                min-height: 1.20rem !important;
+            }}
+
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button {{
+                width: 2.50rem !important;
+                min-width: 2.50rem !important;
+                height: 2.48rem !important;
+                min-height: 2.48rem !important;
+                border-radius: 11px !important;
+            }}
+        }}
+
         </style>
         """,
         unsafe_allow_html=True,
