@@ -1451,22 +1451,21 @@ def apply_rf_theme(login: bool = False) -> None:
             padding-top: .38rem !important;
         }}
 
-
+        
 
         /* ==========================================================
-           RF Scanner inline input + camera button
-           Reconfiguración rápida:
-           --rf-scan-btn-w: ancho del botón cámara
-           --rf-scan-btn-h: alto del botón cámara
-           --rf-scan-gap: separación entre input y botón
+           RF Scanner inline input + camera button - final tuning
+           Ajuste rapido:
+           --rf-scan-btn-w: ancho del boton camara
+           --rf-scan-btn-h: alto del boton camara
+           --rf-scan-gap: separacion entre input y boton
            --rf-scan-icon-size: tamaño del icono
            ========================================================== */
-
         :root {{
-            --rf-scan-btn-w: 22px;
-            --rf-scan-btn-h: 2.38rem;
-            --rf-scan-gap: 2px;
-            --rf-scan-icon-size: 13px;
+            --rf-scan-btn-w: 34px;
+            --rf-scan-btn-h: 2.48rem;
+            --rf-scan-gap: 1px;
+            --rf-scan-icon-size: 17px;
         }}
 
         div[class*="st-key-scanrow_"] {{
@@ -1474,6 +1473,7 @@ def apply_rf_theme(login: bool = False) -> None:
             max-width: 100% !important;
             min-width: 0 !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
         }}
 
         div[class*="st-key-scanrow_"] div[data-testid="stHorizontalBlock"] {{
@@ -1485,6 +1485,7 @@ def apply_rf_theme(login: bool = False) -> None:
             min-width: 0 !important;
             align-items: end !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
         }}
 
         div[class*="st-key-scanrow_"] div[data-testid="column"] {{
@@ -1495,6 +1496,7 @@ def apply_rf_theme(login: bool = False) -> None:
             padding-left: 0 !important;
             padding-right: 0 !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
         }}
 
         div[class*="st-key-scanrow_"] div[data-testid="column"]:nth-child(1) {{
@@ -1527,15 +1529,16 @@ def apply_rf_theme(login: bool = False) -> None:
             max-height: var(--rf-scan-btn-h) !important;
             padding: 0 !important;
             margin: 0 !important;
-            border-radius: 9px !important;
+            border-radius: 10px !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
         }}
 
         div[class*="st-key-scanrow_"] .stButton > button p,
-        div[class*="st-key-scanrow_"] .stButton > button div {{
+        div[class*="st-key-scanrow_"] .stButton > button div:not([data-testid]) {{
             display: none !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -1545,7 +1548,7 @@ def apply_rf_theme(login: bool = False) -> None:
 
         div[class*="st-key-scanrow_"] .stButton > button span,
         div[class*="st-key-scanrow_"] .stButton > button svg {{
-            margin: 0 !important;
+            margin: 0 auto !important;
             padding: 0 !important;
             width: var(--rf-scan-icon-size) !important;
             height: var(--rf-scan-icon-size) !important;
@@ -1568,10 +1571,10 @@ def apply_rf_theme(login: bool = False) -> None:
 
         @media (max-width: 900px) {{
             :root {{
-                --rf-scan-btn-w: 22px;
-                --rf-scan-btn-h: 2.38rem;
-                --rf-scan-gap: 2px;
-                --rf-scan-icon-size: 13px;
+                --rf-scan-btn-w: 34px;
+                --rf-scan-btn-h: 2.48rem;
+                --rf-scan-gap: 1px;
+                --rf-scan-icon-size: 17px;
             }}
         }}
 
