@@ -60,7 +60,7 @@ def scan_text_input(
     # Mobile/RF: el input y el botón de cámara deben caber en la misma fila.
     # Se agrega una tercera columna invisible de seguridad para que Streamlit no
     # empuje el botón fuera del viewport en pantallas angostas.
-    col_input, col_scan, _col_pad = st.columns([0.78, 0.09, 0.13], gap=None)
+    col_input, col_scan, _col_pad = st.columns([0.70, 0.09, 0.13], gap=None)
     with col_input:
         value = st.text_input(
             label,
