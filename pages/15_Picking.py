@@ -236,15 +236,40 @@ with tab_visualizar:
             st.dataframe(get_picking_detalle(int(selected["id_picking"])), use_container_width=True, hide_index=True)
 
 with tab_cortos:
+    if "pick_cortos_fecha_inicio" not in st.session_state:
+        st.session_state.pick_cortos_fecha_inicio = local_today()
+    if "pick_cortos_fecha_fin" not in st.session_state:
+        st.session_state.pick_cortos_fecha_fin = local_today()
+
+    with st.form("form_filtros_cortos"):
+        col_cf1, col_cf2, col_cf3 = st.columns([1, 1, .75])
+        with col_cf1:
+            cortos_fecha_inicio = st.date_input("Fecha inicio", value=st.session_state.pick_cortos_fecha_inicio, key="cortos_fecha_inicio")
+        with col_cf2:
+            cortos_fecha_fin = st.date_input("Fecha fin", value=st.session_state.pick_cortos_fecha_fin, key="cortos_fecha_fin")
+        with col_cf3:
+            consultar_cortos = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+    if consultar_cortos:
+        if cortos_fecha_fin < cortos_fecha_inicio:
+            st.error("La fecha fin no puede ser menor que la fecha inicio.")
+            st.stop()
+        st.session_state.pick_cortos_fecha_inicio = cortos_fecha_inicio
+        st.session_state.pick_cortos_fecha_fin = cortos_fecha_fin
+
     try:
-        cortos = get_picking_cortos(activos_only=True)
+        cortos = get_picking_cortos(
+            activos_only=True,
+            fecha_inicio=st.session_state.pick_cortos_fecha_inicio,
+            fecha_fin=st.session_state.pick_cortos_fecha_fin,
+        )
     except Exception as exc:
         st.error("No se pudo cargar cortos de picking.")
         st.exception(exc)
         st.stop()
 
     if cortos.empty:
-        st.success("No hay cortos activos.")
+        st.success("No hay cortos activos para el rango seleccionado.")
     else:
         st.warning("Hay detalles cortos pendientes de reasignar o cancelar.")
         edited = selectable_table(cortos, "cortos_editor")
