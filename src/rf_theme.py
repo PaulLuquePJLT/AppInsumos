@@ -1454,85 +1454,86 @@ def apply_rf_theme(login: bool = False) -> None:
 
 
         /* ==========================================================
-           RF scanner inline fit: input + camera button inside viewport
+           FIX RF scanner inline: input + botón cámara sin scroll horizontal
            ========================================================== */
-        [data-testid="stAppViewContainer"],
-        section.main,
-        .block-container {{
-            overflow-x: hidden !important;
-            max-width: 100vw !important;
-        }}
-
         div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) {{
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
             display: flex !important;
             flex-wrap: nowrap !important;
-            gap: .22rem !important;
             align-items: flex-start !important;
-            overflow: visible !important;
+            gap: .20rem !important;
+            overflow: hidden !important;
         }}
 
-        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:first-child {{
-            flex: 1 1 auto !important;
-            width: calc(100% - 42px) !important;
-            max-width: calc(100% - 42px) !important;
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div:nth-child(1) {{
+            flex: 1 1 calc(100% - 34px - .20rem) !important;
+            width: calc(100% - 34px - .20rem) !important;
+            max-width: calc(100% - 34px - .20rem) !important;
             min-width: 0 !important;
         }}
 
-        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:last-child {{
-            flex: 0 0 40px !important;
-            width: 40px !important;
-            min-width: 40px !important;
-            max-width: 40px !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div:nth-child(2) {{
+            flex: 0 0 32px !important;
+            width: 32px !important;
+            max-width: 32px !important;
+            min-width: 32px !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }}
+
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div:nth-child(3) {{
+            display: none !important;
+            flex: 0 0 0 !important;
+            width: 0 !important;
+            max-width: 0 !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }}
 
         .rf-scan-button-spacer {{
-            height: 1.18rem !important;
-            min-height: 1.18rem !important;
+            height: 1.28rem !important;
+            min-height: 1.28rem !important;
+            max-height: 1.28rem !important;
             margin: 0 !important;
             padding: 0 !important;
-            overflow: hidden !important;
         }}
 
         div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton {{
-            margin: 0 !important;
+            width: 32px !important;
+            max-width: 32px !important;
+            min-width: 32px !important;
             padding: 0 !important;
+            margin: 0 !important;
         }}
 
         div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button {{
-            width: 40px !important;
-            min-width: 40px !important;
-            max-width: 40px !important;
+            width: 32px !important;
+            max-width: 32px !important;
+            min-width: 32px !important;
             height: 2.48rem !important;
             min-height: 2.48rem !important;
+            max-height: 2.48rem !important;
             padding: 0 !important;
             margin: 0 !important;
-            border-radius: 11px !important;
+            border-radius: 10px !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            font-size: .90rem !important;
+            font-size: .78rem !important;
             line-height: 1 !important;
-            overflow: hidden !important;
         }}
 
         div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button p,
-        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button span,
-        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button div {{
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button div,
+        div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button span {{
             width: auto !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            text-align: center !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: .90rem !important;
+            font-size: .78rem !important;
             line-height: 1 !important;
-            padding: 0 !important;
-            margin: 0 !important;
+            text-align: center !important;
+            justify-content: center !important;
         }}
 
         @media (max-width: 900px) {{
@@ -1540,26 +1541,34 @@ def apply_rf_theme(login: bool = False) -> None:
                 gap: .16rem !important;
             }}
 
-            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:first-child {{
-                width: calc(100% - 38px) !important;
-                max-width: calc(100% - 38px) !important;
-                min-width: 0 !important;
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div:nth-child(1) {{
+                flex-basis: calc(100% - 30px - .16rem) !important;
+                width: calc(100% - 30px - .16rem) !important;
+                max-width: calc(100% - 30px - .16rem) !important;
             }}
 
-            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div[data-testid="column"]:last-child {{
-                flex: 0 0 36px !important;
-                width: 36px !important;
-                min-width: 36px !important;
-                max-width: 36px !important;
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) > div:nth-child(2),
+            div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton {{
+                flex-basis: 30px !important;
+                width: 30px !important;
+                max-width: 30px !important;
+                min-width: 30px !important;
+            }}
+
+            .rf-scan-button-spacer {{
+                height: 1.30rem !important;
+                min-height: 1.30rem !important;
+                max-height: 1.30rem !important;
             }}
 
             div[data-testid="stHorizontalBlock"]:has(.rf-scan-button-spacer) .stButton > button {{
-                width: 36px !important;
-                min-width: 36px !important;
-                max-width: 36px !important;
+                width: 30px !important;
+                max-width: 30px !important;
+                min-width: 30px !important;
                 height: 2.48rem !important;
                 min-height: 2.48rem !important;
-                font-size: .82rem !important;
+                max-height: 2.48rem !important;
+                font-size: .72rem !important;
             }}
         }}
         </style>
