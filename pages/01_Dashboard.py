@@ -1,5 +1,4 @@
-from datetime import date, timedelta
-from src.time_utils import local_today
+from datetime import timedelta
 
 import pandas as pd
 import plotly.express as px
@@ -7,32 +6,42 @@ import streamlit as st
 
 from src.queries import (
     get_cuentas,
+    get_dashboard_kpi_counts,
     get_dashboard_movimientos,
-    get_productos_activos,
     get_stock_general,
     get_stock_por_cuenta,
-    get_ubicaciones,
 )
 from src.theme import PALETTE
+from src.time_utils import local_today
 
 st.markdown('<div class="wms-page-kicker">Reportes</div>', unsafe_allow_html=True)
 st.title("Dashboard operativo")
 st.markdown(
-    '<div class="wms-soft-banner">Resumen ejecutivo de ingresos, salidas, stock valorizado y movimientos. Cambia entre unidades y soles peruanos para analizar cantidades o valor económico.</div>',
+    '<div class="wms-soft-banner">Resumen ejecutivo de ingresos, salidas, stock valorizado y operación. Los movimientos se consultan directamente en Azure SQL usando el rango filtrado.</div>',
     unsafe_allow_html=True,
 )
 
 
-@st.cache_data(ttl=90, show_spinner=False)
-def load_dashboard_data():
+@st.cache_data(ttl=300, show_spinner=False)
+def load_dashboard_static_data():
     return {
-        "movimientos": get_dashboard_movimientos(),
         "stock": get_stock_general(),
         "stock_cuentas": get_stock_por_cuenta(),
-        "productos": get_productos_activos(),
-        "ubicaciones": get_ubicaciones(),
+        "counts": get_dashboard_kpi_counts(),
         "cuentas": get_cuentas(),
     }
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def load_dashboard_movimientos(fecha_inicio, fecha_fin, tipo_movimiento, cuenta, sku, proveedor):
+    return get_dashboard_movimientos(
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        tipo_movimiento=tipo_movimiento,
+        cuenta=cuenta,
+        sku=sku,
+        proveedor=proveedor,
+    )
 
 
 def _empty_df() -> pd.DataFrame:
@@ -61,23 +70,124 @@ def _style_fig(fig):
 
 
 try:
-    data = load_dashboard_data()
+    static_data = load_dashboard_static_data()
 except Exception as exc:
-    st.error(
-        "No se pudo cargar la información del dashboard. "
-        "Ejecuta en Azure SQL el script database/012_precio_dashboard_optimization.sql "
-        "y luego reinicia la app."
-    )
+    st.error("No se pudo cargar maestros/stock para el dashboard.")
     with st.expander("Detalle técnico"):
         st.code(str(exc))
     st.stop()
 
-mov = data["movimientos"].copy()
-stock = data["stock"].copy()
-stock_cuentas = data["stock_cuentas"].copy()
-productos = data["productos"].copy()
-ubicaciones = data["ubicaciones"].copy()
-cuentas = data["cuentas"].copy()
+stock = static_data["stock"].copy()
+stock_cuentas = static_data["stock_cuentas"].copy()
+counts = static_data["counts"].copy()
+cuentas = static_data["cuentas"].copy()
+
+for col in ["cantidad_total", "cantidad_disponible", "cantidad_en_picking", "valor_stock_total", "valor_stock_disponible"]:
+    if col in stock.columns:
+        stock[col] = pd.to_numeric(stock[col], errors="coerce").fillna(0.0)
+
+for col in ["cantidad_neta", "valor_stock_cuenta"]:
+    if col in stock_cuentas.columns:
+        stock_cuentas[col] = pd.to_numeric(stock_cuentas[col], errors="coerce").fillna(0.0)
+
+# ---------------------------------------------------------------------------
+# Primera fila: filtros. Importante: estos filtros se aplican en SQL, no en Pandas.
+# ---------------------------------------------------------------------------
+st.markdown('<div class="wms-card"><div class="wms-card-title">Filtros</div>', unsafe_allow_html=True)
+
+if "dash_fecha_inicio" not in st.session_state:
+    st.session_state.dash_fecha_inicio = local_today() - timedelta(days=1)
+if "dash_fecha_fin" not in st.session_state:
+    st.session_state.dash_fecha_fin = local_today()
+if "dash_tipo" not in st.session_state:
+    st.session_state.dash_tipo = ""
+if "dash_cuenta" not in st.session_state:
+    st.session_state.dash_cuenta = ""
+if "dash_sku" not in st.session_state:
+    st.session_state.dash_sku = ""
+if "dash_proveedor" not in st.session_state:
+    st.session_state.dash_proveedor = ""
+
+with st.form("form_dashboard_filtros"):
+    col1, col2, col3, col4 = st.columns([1, 1, 1.2, 1])
+    with col1:
+        fecha_inicio = st.date_input("Fecha inicio", value=st.session_state.dash_fecha_inicio)
+    with col2:
+        fecha_fin = st.date_input("Fecha fin", value=st.session_state.dash_fecha_fin)
+    with col3:
+        tipo_options = ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"]
+        tipo_filter = st.selectbox(
+            "Tipo movimiento",
+            tipo_options,
+            index=tipo_options.index(st.session_state.dash_tipo) if st.session_state.dash_tipo in tipo_options else 0,
+            format_func=lambda x: "Todos" if x == "" else x,
+        )
+    with col4:
+        modo = st.radio("Mostrar", ["Unidades", "Soles (S/.)"], horizontal=True)
+
+    col5, col6, col7, col8 = st.columns([1.3, 1, 1, .7])
+    with col5:
+        cuenta_options = [""]
+        cuenta_label_to_code = {"": ""}
+        if not cuentas.empty:
+            for _, r in cuentas.iterrows():
+                label = f"{r['codigo_cuenta']} | {r['nombre_cuenta']}"
+                cuenta_options.append(label)
+                cuenta_label_to_code[label] = str(r["codigo_cuenta"])
+        selected_label = None
+        for k, v in cuenta_label_to_code.items():
+            if v == st.session_state.dash_cuenta:
+                selected_label = k
+                break
+        cuenta_label = st.selectbox(
+            "Cuenta logística",
+            cuenta_options,
+            index=cuenta_options.index(selected_label or "") if (selected_label or "") in cuenta_options else 0,
+            format_func=lambda x: "Todas" if x == "" else x,
+        )
+        cuenta_filter = cuenta_label_to_code.get(cuenta_label, "")
+    with col6:
+        sku_filter = st.text_input("SKU / producto", value=st.session_state.dash_sku)
+    with col7:
+        proveedor_filter = st.text_input("Proveedor", value=st.session_state.dash_proveedor)
+    with col8:
+        consultar = st.form_submit_button("Consultar", use_container_width=True, type="primary")
+
+if consultar:
+    if fecha_fin < fecha_inicio:
+        st.error("La fecha fin no puede ser menor que la fecha inicio.")
+        st.stop()
+    st.session_state.dash_fecha_inicio = fecha_inicio
+    st.session_state.dash_fecha_fin = fecha_fin
+    st.session_state.dash_tipo = tipo_filter
+    st.session_state.dash_cuenta = cuenta_filter
+    st.session_state.dash_sku = sku_filter.strip()
+    st.session_state.dash_proveedor = proveedor_filter.strip()
+    load_dashboard_movimientos.clear()
+
+col_refresh, _ = st.columns([.9, 4])
+with col_refresh:
+    if st.button("Actualizar datos", use_container_width=True):
+        load_dashboard_static_data.clear()
+        load_dashboard_movimientos.clear()
+        st.rerun()
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+try:
+    mov = load_dashboard_movimientos(
+        st.session_state.dash_fecha_inicio,
+        st.session_state.dash_fecha_fin,
+        st.session_state.dash_tipo,
+        st.session_state.dash_cuenta,
+        st.session_state.dash_sku,
+        st.session_state.dash_proveedor,
+    ).copy()
+except Exception as exc:
+    st.error("No se pudo consultar movimientos del dashboard con los filtros seleccionados.")
+    with st.expander("Detalle técnico"):
+        st.code(str(exc))
+    st.stop()
 
 if not mov.empty:
     mov["fecha_movimiento"] = pd.to_datetime(mov["fecha_movimiento"], errors="coerce")
@@ -94,102 +204,6 @@ else:
         "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "ruc_proveedor", "sku", "nombre_producto", "codigo_unidad"
     ])
 
-for col in ["cantidad_total", "cantidad_disponible", "cantidad_en_picking", "valor_stock_total", "valor_stock_disponible"]:
-    if col in stock.columns:
-        stock[col] = pd.to_numeric(stock[col], errors="coerce").fillna(0.0)
-
-for col in ["cantidad_neta", "valor_stock_cuenta"]:
-    if col in stock_cuentas.columns:
-        stock_cuentas[col] = pd.to_numeric(stock_cuentas[col], errors="coerce").fillna(0.0)
-
-# ---------------------------------------------------------------------------
-# Primera fila: filtros
-# ---------------------------------------------------------------------------
-st.markdown('<div class="wms-card"><div class="wms-card-title">Filtros</div>', unsafe_allow_html=True)
-
-if not mov.empty and mov["fecha"].notna().any():
-    max_date = max(mov["fecha"].dropna())
-    available_min_date = min(mov["fecha"].dropna())
-    min_date = max(available_min_date, max_date - timedelta(days=1))
-else:
-    max_date = local_today()
-    available_min_date = max_date - timedelta(days=365)
-    min_date = max_date - timedelta(days=1)
-
-# Streamlit exige que el valor inicial esté dentro del rango min/max.
-if min_date < available_min_date:
-    min_date = available_min_date
-if min_date > max_date:
-    min_date = max_date
-
-col1, col2, col3, col4 = st.columns([1.25, 1, 1.2, 1])
-with col1:
-    fecha_rango = st.date_input(
-        "Rango de fechas",
-        value=(min_date, max_date),
-        min_value=available_min_date,
-        max_value=max_date,
-    )
-with col2:
-    tipo_options = [""] + sorted(mov["tipo_movimiento"].dropna().astype(str).unique().tolist())
-    tipo_filter = st.selectbox("Tipo movimiento", tipo_options, format_func=lambda x: "Todos" if x == "" else x)
-with col3:
-    cuenta_options = [""]
-    cuenta_label_to_code = {"": ""}
-    if not cuentas.empty:
-        for _, r in cuentas.iterrows():
-            label = f"{r['codigo_cuenta']} | {r['nombre_cuenta']}"
-            cuenta_options.append(label)
-            cuenta_label_to_code[label] = str(r["codigo_cuenta"])
-    cuenta_label = st.selectbox("Cuenta logística", cuenta_options, format_func=lambda x: "Todas" if x == "" else x)
-    cuenta_filter = cuenta_label_to_code.get(cuenta_label, "")
-with col4:
-    modo = st.radio("Mostrar", ["Unidades", "Soles (S/.)"], horizontal=True)
-
-col5, col6, col7 = st.columns([1, 1, .7])
-with col5:
-    sku_filter = st.text_input("SKU / producto")
-with col6:
-    proveedor_filter = st.text_input("Proveedor")
-with col7:
-    if st.button("Actualizar", use_container_width=True):
-        load_dashboard_data.clear()
-        st.rerun()
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-filtered = mov.copy()
-
-if isinstance(fecha_rango, tuple) and len(fecha_rango) == 2:
-    start_date, end_date = fecha_rango
-else:
-    start_date = fecha_rango
-    end_date = fecha_rango
-
-if not filtered.empty:
-    filtered = filtered[(filtered["fecha"] >= start_date) & (filtered["fecha"] <= end_date)]
-
-if tipo_filter:
-    filtered = filtered[filtered["tipo_movimiento"].astype(str) == tipo_filter]
-
-if cuenta_filter:
-    value = cuenta_filter.lower()
-    filtered = filtered[filtered["codigo_cuenta"].astype(str).str.lower() == value]
-
-if proveedor_filter.strip():
-    value = proveedor_filter.strip().lower()
-    filtered = filtered[
-        filtered["razon_social_proveedor"].astype(str).str.lower().str.contains(value, na=False)
-        | filtered["ruc_proveedor"].astype(str).str.lower().str.contains(value, na=False)
-    ]
-
-if sku_filter.strip():
-    value = sku_filter.strip().lower()
-    filtered = filtered[
-        filtered["sku"].astype(str).str.lower().str.contains(value, na=False)
-        | filtered["nombre_producto"].astype(str).str.lower().str.contains(value, na=False)
-    ]
-
 y_col = "importe_soles" if modo.startswith("Soles") else "cantidad"
 y_label = "Monto S/." if y_col == "importe_soles" else "Cantidad"
 formatter = _format_pen if y_col == "importe_soles" else _format_qty
@@ -197,9 +211,9 @@ formatter = _format_pen if y_col == "importe_soles" else _format_qty
 # ---------------------------------------------------------------------------
 # Segunda fila: KPI cards
 # ---------------------------------------------------------------------------
-ingresos = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "ENTRADA"]
-salidas = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "SALIDA_CUENTA"]
-transferencias = filtered[filtered["tipo_movimiento"].astype(str).str.upper() == "TRANSFERENCIA"]
+ingresos = mov[mov["tipo_movimiento"].astype(str).str.upper() == "ENTRADA"]
+salidas = mov[mov["tipo_movimiento"].astype(str).str.upper() == "SALIDA_CUENTA"]
+transferencias = mov[mov["tipo_movimiento"].astype(str).str.upper() == "TRANSFERENCIA"]
 
 stock_disponible = float(stock.get("cantidad_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
 stock_valor_disponible = float(stock.get("valor_stock_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
@@ -209,32 +223,35 @@ low_stock = stock[
 ] if not stock.empty else _empty_df()
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Ingresos", formatter(float(ingresos[y_col].sum())))
-k2.metric("Salidas a cuenta", formatter(float(salidas[y_col].sum())))
-k3.metric("Transferencias", formatter(float(transferencias[y_col].sum())))
+k1.metric("Ingresos", formatter(float(ingresos[y_col].sum())) if not ingresos.empty else formatter(0))
+k2.metric("Salidas a cuenta", formatter(float(salidas[y_col].sum())) if not salidas.empty else formatter(0))
+k3.metric("Transferencias", formatter(float(transferencias[y_col].sum())) if not transferencias.empty else formatter(0))
 k4.metric("Stock disponible", _format_pen(stock_valor_disponible) if y_col == "importe_soles" else _format_qty(stock_disponible))
 k5.metric("Bajo mínimo", len(low_stock))
 
 k6, k7, k8, k9 = st.columns(4)
-k6.metric("SKUs activos", len(productos))
-k7.metric("Ubicaciones", len(ubicaciones))
-k8.metric("Cuentas", len(cuentas))
-k9.metric("Movimientos", filtered["id_movimiento"].nunique() if "id_movimiento" in filtered.columns else len(filtered))
+skus_activos = int(counts["skus_activos"].iloc[0]) if not counts.empty and "skus_activos" in counts.columns else 0
+ubicaciones_count = int(counts["ubicaciones"].iloc[0]) if not counts.empty and "ubicaciones" in counts.columns else 0
+cuentas_count = int(counts["cuentas"].iloc[0]) if not counts.empty and "cuentas" in counts.columns else len(cuentas)
+k6.metric("SKUs activos", skus_activos)
+k7.metric("Ubicaciones", ubicaciones_count)
+k8.metric("Cuentas", cuentas_count)
+k9.metric("Movimientos", mov["id_movimiento"].nunique() if "id_movimiento" in mov.columns else len(mov))
 
-if filtered.empty:
+if mov.empty:
     st.info("No hay movimientos para los filtros seleccionados.")
     st.stop()
 
-filtered["fecha_str"] = pd.to_datetime(filtered["fecha"], errors="coerce")
+mov["fecha_str"] = pd.to_datetime(mov["fecha"], errors="coerce")
 
 # ---------------------------------------------------------------------------
-# Gráficas principales
+# Gráficas principales. No se muestra tabla de movimientos en Dashboard.
 # ---------------------------------------------------------------------------
 row1_col1, row1_col2 = st.columns([1.25, 1])
 
 with row1_col1:
     daily = (
-        filtered.groupby(["fecha_str", "tipo_movimiento"], as_index=False)[y_col]
+        mov.groupby(["fecha_str", "tipo_movimiento"], as_index=False)[y_col]
         .sum()
         .sort_values("fecha_str")
     )
@@ -250,7 +267,7 @@ with row1_col1:
     st.plotly_chart(_style_fig(fig), use_container_width=True)
 
 with row1_col2:
-    by_type = filtered.groupby("tipo_movimiento", as_index=False)[y_col].sum()
+    by_type = mov.groupby("tipo_movimiento", as_index=False)[y_col].sum()
     fig = px.pie(
         by_type,
         values=y_col,
@@ -265,7 +282,7 @@ row2_col1, row2_col2 = st.columns(2)
 
 with row2_col1:
     top_sku = (
-        filtered.groupby(["sku", "nombre_producto"], as_index=False)[y_col]
+        mov.groupby(["sku", "nombre_producto"], as_index=False)[y_col]
         .sum()
         .sort_values(y_col, ascending=False)
         .head(10)
@@ -310,8 +327,8 @@ row3_col1, row3_col2 = st.columns(2)
 
 with row3_col1:
     stock_cuentas_view = stock_cuentas.copy()
-    if cuenta_filter and not stock_cuentas_view.empty:
-        stock_cuentas_view = stock_cuentas_view[stock_cuentas_view["codigo_cuenta"].astype(str).str.lower() == cuenta_filter.lower()]
+    if st.session_state.dash_cuenta and not stock_cuentas_view.empty:
+        stock_cuentas_view = stock_cuentas_view[stock_cuentas_view["codigo_cuenta"].astype(str).str.lower() == st.session_state.dash_cuenta.lower()]
     if stock_cuentas_view.empty or "valor_stock_cuenta" not in stock_cuentas_view.columns:
         st.info("No hay stock valorizado por cuenta para mostrar.")
     else:
@@ -335,7 +352,7 @@ with row3_col1:
         st.plotly_chart(_style_fig(fig), use_container_width=True)
 
 with row3_col2:
-    mov_valor = filtered[filtered["tipo_movimiento"].astype(str).str.upper().isin(["ENTRADA", "SALIDA_CUENTA"])].copy()
+    mov_valor = mov[mov["tipo_movimiento"].astype(str).str.upper().isin(["ENTRADA", "SALIDA_CUENTA"])].copy()
     if mov_valor.empty:
         st.info("No hay ingresos o salidas para graficar valorización.")
     else:
@@ -388,10 +405,3 @@ with row4_col2:
         low_cols = [c for c in ["sku", "nombre_producto", "cantidad_disponible", "valor_stock_disponible", "stock_minimo"] if c in low_stock.columns]
         st.markdown("### Productos bajo mínimo")
         st.dataframe(low_stock[low_cols].head(15), use_container_width=True, hide_index=True)
-
-st.markdown("### Movimientos filtrados")
-cols = [
-    "fecha_movimiento", "tipo_movimiento", "sku", "nombre_producto", "cantidad", "codigo_unidad",
-    "precio_unitario", "importe_soles", "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "referencia",
-]
-st.dataframe(filtered[[c for c in cols if c in filtered.columns]].reset_index(drop=True), use_container_width=True, hide_index=True)
