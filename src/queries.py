@@ -117,9 +117,28 @@ def clean_bool(value) -> int:
 # Consultas generales
 # ---------------------------------------------------------------------------
 
-def get_stock_general():
-    return read_dataframe("""
-        SELECT
+def get_stock_general(sku: str = "", solo_con_stock: bool = True, max_rows: int | None = None):
+    filters = []
+    params: dict = {}
+
+    if solo_con_stock:
+        filters.append("""
+            (
+                ISNULL(cantidad_total, 0) > 0
+                OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_disponible, 0) > 0
+            )
+        """)
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+
+    top_sql = f"TOP ({int(max_rows)})" if max_rows else ""
+    where_sql = "WHERE " + " AND ".join(filters) if filters else ""
+
+    return read_dataframe(f"""
+        SELECT {top_sql}
             id_producto,
             sku,
             nombre_producto,
@@ -135,16 +154,41 @@ def get_stock_general():
             ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_total) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible
         FROM dbo.vw_stock_general
-        WHERE ISNULL(cantidad_total, 0) > 0
-           OR ISNULL(cantidad_en_picking, 0) > 0
-           OR ISNULL(cantidad_disponible, 0) > 0
+        {where_sql}
         ORDER BY nombre_producto
-    """)
+    """, params)
 
 
-def get_stock_por_ubicacion():
-    return read_dataframe("""
-        SELECT
+def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", solo_con_stock: bool = True, max_rows: int | None = None):
+    filters = []
+    params: dict = {}
+
+    if solo_con_stock:
+        filters.append("""
+            (
+                ISNULL(cantidad_actual, 0) > 0
+                OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_disponible, 0) > 0
+            )
+        """)
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+
+    if ubicacion:
+        filters.append("(codigo_ubicacion LIKE '%' + :ubicacion + '%' OR tipo_ubicacion LIKE '%' + :ubicacion + '%')")
+        params["ubicacion"] = ubicacion
+
+    if zona:
+        filters.append("(codigo_zona LIKE '%' + :zona + '%' OR nombre_zona LIKE '%' + :zona + '%')")
+        params["zona"] = zona
+
+    top_sql = f"TOP ({int(max_rows)})" if max_rows else ""
+    where_sql = "WHERE " + " AND ".join(filters) if filters else ""
+
+    return read_dataframe(f"""
+        SELECT {top_sql}
             id_producto,
             sku,
             nombre_producto,
@@ -168,11 +212,9 @@ def get_stock_por_ubicacion():
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible,
             fecha_actualizacion
         FROM dbo.vw_stock_por_ubicacion
-        WHERE ISNULL(cantidad_actual, 0) > 0
-           OR ISNULL(cantidad_en_picking, 0) > 0
-           OR ISNULL(cantidad_disponible, 0) > 0
+        {where_sql}
         ORDER BY nombre_producto, secuencia, codigo_ubicacion
-    """)
+    """, params)
 
 
 def aplicar_vencimientos_stock_cuenta() -> None:
@@ -189,10 +231,27 @@ def aplicar_vencimientos_stock_cuenta() -> None:
         pass
 
 
-def get_stock_por_cuenta():
+def get_stock_por_cuenta(cuenta: str = "", sku: str = "", solo_con_stock: bool = True, max_rows: int | None = None):
     aplicar_vencimientos_stock_cuenta()
-    return read_dataframe("""
-        SELECT
+    filters = []
+    params: dict = {}
+
+    if solo_con_stock:
+        filters.append("ISNULL(cantidad_neta, 0) > 0")
+
+    if cuenta:
+        filters.append("(codigo_cuenta LIKE '%' + :cuenta + '%' OR nombre_cuenta LIKE '%' + :cuenta + '%')")
+        params["cuenta"] = cuenta
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+
+    top_sql = f"TOP ({int(max_rows)})" if max_rows else ""
+    where_sql = "WHERE " + " AND ".join(filters) if filters else ""
+
+    return read_dataframe(f"""
+        SELECT {top_sql}
             id_cuenta,
             codigo_cuenta,
             nombre_cuenta,
@@ -210,9 +269,9 @@ def get_stock_por_cuenta():
             ISNULL(valor_stock_cuenta, cantidad_neta * ISNULL(precio_unitario, 0)) AS valor_stock_cuenta,
             fecha_actualizacion
         FROM dbo.vw_stock_por_cuenta
-        WHERE ISNULL(cantidad_neta, 0) > 0
+        {where_sql}
         ORDER BY nombre_cuenta, nombre_producto
-    """)
+    """, params)
 
 
 def get_movimientos(fecha_inicio=None, fecha_fin=None, tipo_movimiento: str = "", cuenta: str = "", sku: str = ""):
@@ -1615,13 +1674,26 @@ def get_picking_detalle(id_picking: int | None = None):
     )
 
 
-def get_picking_cortos(activos_only: bool = True):
-    estado_filter = "AND pd.estado = 'CORTO'" if activos_only else "AND pd.estado IN ('CORTO','CANCELADO','REASIGNADO')"
+def get_picking_cortos(activos_only: bool = True, fecha_inicio=None, fecha_fin=None):
+    filters = ["pd.estado = 'CORTO'" if activos_only else "pd.estado IN ('CORTO','CANCELADO','REASIGNADO')"]
+    params: dict = {}
+
+    if fecha_inicio is not None:
+        filters.append("ph.fecha_creacion >= CAST(:fecha_inicio AS date)")
+        params["fecha_inicio"] = fecha_inicio
+
+    if fecha_fin is not None:
+        filters.append("ph.fecha_creacion < DATEADD(DAY, 1, CAST(:fecha_fin AS date))")
+        params["fecha_fin"] = fecha_fin
+
+    where_sql = " AND ".join(filters)
+
     return read_dataframe(f"""
         SELECT
             pd.id_picking_detalle,
             pd.id_picking,
             ph.nro_picking,
+            ph.fecha_creacion,
             ph.estado AS estado_picking,
             pd.id_pedido,
             pd.nro_pedido,
@@ -1633,16 +1705,15 @@ def get_picking_cortos(activos_only: bool = True):
             pd.cantidad_solicitada AS cantidad_corta,
             pd.estado,
             pd.texto_item,
-            pd.fecha_creacion
+            pd.fecha_creacion AS fecha_creacion_detalle
         FROM picking_detalle pd
         INNER JOIN picking_header ph ON ph.id_picking = pd.id_picking
         INNER JOIN productos p ON p.id_producto = pd.id_producto
         INNER JOIN unidades_medida um ON um.id_unidad = p.id_unidad
         INNER JOIN cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
-        WHERE 1 = 1
-          {estado_filter}
+        WHERE {where_sql}
         ORDER BY ph.fecha_creacion DESC, ph.nro_picking DESC, p.sku
-    """)
+    """, params)
 
 
 def get_tareas_picking_pendientes():
@@ -1749,8 +1820,49 @@ def get_stock_para_transferencia():
 # Dashboard ejecutivo
 # ---------------------------------------------------------------------------
 
-def get_dashboard_movimientos():
-    query_view = """
+def get_dashboard_movimientos(
+    fecha_inicio=None,
+    fecha_fin=None,
+    tipo_movimiento: str = "",
+    cuenta: str = "",
+    sku: str = "",
+    proveedor: str = "",
+):
+    """Movimientos para dashboard con filtros aplicados en Azure SQL.
+
+    Importante: no cargar todo el historico a Pandas. Esta funcion siempre debe
+    recibir rango de fechas desde la vista para que SQL haga el filtrado.
+    """
+    filters = ["fecha_movimiento IS NOT NULL"]
+    params: dict = {}
+
+    if fecha_inicio is not None:
+        filters.append("fecha_movimiento >= CAST(:fecha_inicio AS date)")
+        params["fecha_inicio"] = fecha_inicio
+
+    if fecha_fin is not None:
+        filters.append("fecha_movimiento < DATEADD(DAY, 1, CAST(:fecha_fin AS date))")
+        params["fecha_fin"] = fecha_fin
+
+    if tipo_movimiento:
+        filters.append("tipo_movimiento = :tipo_movimiento")
+        params["tipo_movimiento"] = tipo_movimiento
+
+    if cuenta:
+        filters.append("(codigo_cuenta = :cuenta OR codigo_cuenta LIKE '%' + :cuenta + '%' OR nombre_cuenta LIKE '%' + :cuenta + '%')")
+        params["cuenta"] = cuenta
+
+    if sku:
+        filters.append("(sku LIKE '%' + :sku + '%' OR nombre_producto LIKE '%' + :sku + '%')")
+        params["sku"] = sku
+
+    if proveedor:
+        filters.append("(ruc_proveedor LIKE '%' + :proveedor + '%' OR razon_social_proveedor LIKE '%' + :proveedor + '%')")
+        params["proveedor"] = proveedor
+
+    where_sql = " AND ".join(filters)
+
+    query_view = f"""
         SELECT
             id_movimiento,
             tipo_movimiento,
@@ -1778,11 +1890,11 @@ def get_dashboard_movimientos():
             ISNULL(usuario_nombre, '') AS usuario_nombre,
             estado
         FROM dbo.vw_movimientos
-        WHERE fecha_movimiento IS NOT NULL
+        WHERE {where_sql}
         ORDER BY fecha_movimiento DESC, id_movimiento DESC
     """
 
-    query_fallback = """
+    query_fallback = f"""
         SELECT
             m.id_movimiento,
             m.tipo_movimiento,
@@ -1818,14 +1930,24 @@ def get_dashboard_movimientos():
         LEFT JOIN dbo.cuentas_logisticas c ON c.id_cuenta = m.id_cuenta
         LEFT JOIN dbo.proveedores pr ON pr.id_proveedor = m.id_proveedor
         LEFT JOIN dbo.usuarios u ON u.id_usuario = m.id_usuario
-        WHERE m.fecha_movimiento IS NOT NULL
+        WHERE {where_sql.replace('fecha_movimiento', 'm.fecha_movimiento').replace('tipo_movimiento', 'm.tipo_movimiento').replace('codigo_cuenta', 'c.codigo_cuenta').replace('nombre_cuenta', 'c.nombre_cuenta').replace('sku', 'p.sku').replace('nombre_producto', 'p.nombre_producto').replace('ruc_proveedor', 'pr.ruc').replace('razon_social_proveedor', 'pr.razon_social')}
         ORDER BY m.fecha_movimiento DESC, m.id_movimiento DESC
     """
 
     try:
-        return read_dataframe(query_view)
+        return read_dataframe(query_view, params)
     except Exception:
-        return read_dataframe(query_fallback)
+        return read_dataframe(query_fallback, params)
+
+
+def get_dashboard_kpi_counts():
+    """KPIs de conteo para dashboard sin cargar tablas maestras completas."""
+    return read_dataframe("""
+        SELECT
+            (SELECT COUNT(1) FROM dbo.productos WHERE ISNULL(activo, 1) = 1) AS skus_activos,
+            (SELECT COUNT(1) FROM dbo.ubicaciones WHERE ISNULL(activo, 1) = 1) AS ubicaciones,
+            (SELECT COUNT(1) FROM dbo.cuentas_logisticas WHERE ISNULL(activo, 1) = 1) AS cuentas
+    """)
 
 # ---------------------------------------------------------------------------
 # Salida Ajuste
