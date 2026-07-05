@@ -57,10 +57,10 @@ def scan_text_input(
     """
     _apply_pending_scan(key, uppercase)
 
-    # Mantener input + scanner en una sola fila también en mobile.
-    # El CSS usa .rf-scan-button-spacer como marcador para fijar el ancho
-    # del botón y evitar scroll horizontal.
-    col_input, col_scan = st.columns([0.86, 0.14], gap="small")
+    # Mobile/RF: el input y el botón de cámara deben caber en la misma fila.
+    # Se agrega una tercera columna invisible de seguridad para que Streamlit no
+    # empuje el botón fuera del viewport en pantallas angostas.
+    col_input, col_scan, _col_pad = st.columns([0.78, 0.09, 0.13], gap=None)
     with col_input:
         value = st.text_input(
             label,
@@ -71,7 +71,7 @@ def scan_text_input(
         )
     with col_scan:
         st.markdown('<div class="rf-scan-button-spacer"></div>', unsafe_allow_html=True)
-        if st.button("📷", key=f"{key}_scanner_btn", help=button_label, use_container_width=True):
+        if st.button("📷", key=f"{key}_scanner_btn", help=button_label, use_container_width=False):
             st.session_state[f"{key}_scanner_open"] = True
 
     if st.session_state.get(f"{key}_scanner_open"):
