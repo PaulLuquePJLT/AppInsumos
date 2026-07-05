@@ -15,22 +15,24 @@ _rf_barcode_scanner = components.declare_component(
 
 
 # ==========================================================
-# Configuración de layout del input + botón de cámara
+# Configuracion de layout input + boton scanner RF
 # ==========================================================
-# Aumenta RF_SCAN_INPUT_RATIO si quieres el input más largo.
-# Disminuye RF_SCAN_BUTTON_RATIO si quieres el botón más angosto.
-# La apariencia final del botón también se controla en src/rf_theme.py,
-# variables CSS: --rf-scan-btn-w, --rf-scan-btn-h, --rf-scan-gap.
-RF_SCAN_INPUT_RATIO = 0.93
-RF_SCAN_BUTTON_RATIO = 0.07
+# Estos ratios funcionan como respaldo. El ajuste fino visual se controla
+# principalmente en src/rf_theme.py con:
+#   --rf-scan-btn-w
+#   --rf-scan-btn-h
+#   --rf-scan-gap
+#   --rf-scan-icon-size
+RF_SCAN_INPUT_RATIO = 0.90
+RF_SCAN_BUTTON_RATIO = 0.10
 
 
 def consume_scanned_value() -> None:
     """Compatibilidad con versiones previas.
 
-    La versión anterior del scanner enviaba el código por query params. La nueva
-    versión usa un componente bidireccional de Streamlit y aplica el valor dentro
-    de scan_text_input(). Esta función queda como no-op para no romper imports.
+    La version anterior enviaba el valor escaneado por query params. La version
+    actual usa un componente bidireccional y aplica el resultado en
+    scan_text_input(). Se conserva como no-op para no romper imports existentes.
     """
     return None
 
@@ -72,14 +74,13 @@ def scan_text_input(
     max_chars: int | None = None,
     uppercase: bool = False,
 ) -> str:
-    """Input RF con botón de cámara en línea.
+    """Input RF con boton de camara en linea.
 
-    El objetivo es que en mobile RF se vea así, sin scroll horizontal:
+    En mobile debe verse asi, sin scroll horizontal:
+        [ input ajustado al ancho disponible ][boton camara]
 
-        [ input recortado al ancho disponible ][botón cámara]
-
-    La lectura usa un componente bidireccional de Streamlit. Cuando detecta el
-    código, lo guarda en st.session_state[key] y el input queda actualizado.
+    El scanner usa un componente bidireccional de Streamlit. Cuando detecta el
+    codigo, lo guarda en st.session_state[key] y el input queda actualizado.
     """
     _apply_pending_scan(key, uppercase)
 
@@ -118,12 +119,12 @@ def scan_text_input(
     return str(value or "").upper() if uppercase else str(value or "")
 
 
-def _render_scanner_panel(target_key: str, title: str = "Escanear código", uppercase: bool = False) -> None:
+def _render_scanner_panel(target_key: str, title: str = "Escanear codigo", uppercase: bool = False) -> None:
     with st.container(border=True):
         c1, c2 = st.columns([0.72, 0.28])
         with c1:
             st.markdown(f"**{title}**")
-            st.caption("Apunta al código. Se intentará usar la cámara posterior.")
+            st.caption("Apunta al codigo. Se intentara usar la camara posterior.")
         with c2:
             if st.button("Cerrar", key=f"{target_key}_scanner_close", use_container_width=True):
                 st.session_state[f"{target_key}_scanner_open"] = False
