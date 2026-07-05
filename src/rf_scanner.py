@@ -14,6 +14,17 @@ _rf_barcode_scanner = components.declare_component(
 )
 
 
+# ==========================================================
+# Configuración de layout del input + botón de cámara
+# ==========================================================
+# Aumenta RF_SCAN_INPUT_RATIO si quieres el input más largo.
+# Disminuye RF_SCAN_BUTTON_RATIO si quieres el botón más angosto.
+# La apariencia final del botón también se controla en src/rf_theme.py,
+# variables CSS: --rf-scan-btn-w, --rf-scan-btn-h, --rf-scan-gap.
+RF_SCAN_INPUT_RATIO = 0.93
+RF_SCAN_BUTTON_RATIO = 0.07
+
+
 def consume_scanned_value() -> None:
     """Compatibilidad con versiones previas.
 
@@ -22,6 +33,17 @@ def consume_scanned_value() -> None:
     de scan_text_input(). Esta función queda como no-op para no romper imports.
     """
     return None
+
+
+def _safe_key(value: str) -> str:
+    return (
+        str(value)
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace(".", "_")
+        .replace(":", "_")
+        .replace("/", "_")
+    )
 
 
 def _apply_pending_scan(key: str, uppercase: bool) -> None:
@@ -50,29 +72,45 @@ def scan_text_input(
     max_chars: int | None = None,
     uppercase: bool = False,
 ) -> str:
-    """Input RF con botón de cámara.
+    """Input RF con botón de cámara en línea.
 
-    Usa un componente bidireccional real para que, apenas se detecte el código,
-    el valor se escriba en st.session_state[key] y aparezca en el input.
+    El objetivo es que en mobile RF se vea así, sin scroll horizontal:
+
+        [ input recortado al ancho disponible ][botón cámara]
+
+    La lectura usa un componente bidireccional de Streamlit. Cuando detecta el
+    código, lo guarda en st.session_state[key] y el input queda actualizado.
     """
     _apply_pending_scan(key, uppercase)
 
-    # Mobile/RF: el input y el botón de cámara deben caber en la misma fila.
-    # Se agrega una tercera columna invisible de seguridad para que Streamlit no
-    # empuje el botón fuera del viewport en pantallas angostas.
-    col_input, col_scan, _col_pad = st.columns([0.70, 0.09, 0.13], gap=None)
-    with col_input:
-        value = st.text_input(
-            label,
-            key=key,
-            placeholder=placeholder,
-            help=help,
-            max_chars=max_chars,
+    scan_row_key = f"scanrow_{_safe_key(key)}"
+
+    with st.container(key=scan_row_key):
+        col_input, col_scan = st.columns(
+            [RF_SCAN_INPUT_RATIO, RF_SCAN_BUTTON_RATIO],
+            gap="small",
+            vertical_alignment="bottom",
         )
-    with col_scan:
-        st.markdown('<div class="rf-scan-button-spacer"></div>', unsafe_allow_html=True)
-        if st.button("📷", key=f"{key}_scanner_btn", help=button_label, use_container_width=False):
-            st.session_state[f"{key}_scanner_open"] = True
+
+        with col_input:
+            value = st.text_input(
+                label,
+                key=key,
+                placeholder=placeholder,
+                help=help,
+                max_chars=max_chars,
+            )
+
+        with col_scan:
+            scan_clicked = st.button(
+                "",
+                icon=":material/photo_camera:",
+                key=f"{key}_scanner_btn",
+                help=button_label,
+                use_container_width=True,
+            )
+            if scan_clicked:
+                st.session_state[f"{key}_scanner_open"] = True
 
     if st.session_state.get(f"{key}_scanner_open"):
         _render_scanner_panel(target_key=key, title=button_label, uppercase=uppercase)
