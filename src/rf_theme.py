@@ -1610,68 +1610,17 @@ def apply_rf_theme(login: bool = False) -> None:
             }}
         }}
 
-        
-        /* ==========================================================
-           Voice Picking conversacional RF
-           ========================================================== */
-        .rf-voice-help {{
-            background: rgba(221,247,243,.72) !important;
-            border: 1px solid rgba(24,169,153,.18) !important;
-            border-radius: 12px !important;
-            padding: .42rem .55rem !important;
-            margin: .36rem 0 .42rem 0 !important;
-            color: var(--rf-navy) !important;
-            font-size: .72rem !important;
-            line-height: 1.25 !important;
-        }}
-        .rf-voice-help-title {{
-            color: var(--rf-teal-dark) !important;
-            font-size: .62rem !important;
-            font-weight: 900 !important;
-            text-transform: uppercase !important;
-            letter-spacing: .06em !important;
-            margin-bottom: .12rem !important;
-        }}
-        .rf-voice-task .rf-voice-step {{
-            display: inline-flex !important;
-            align-items: center !important;
-            width: fit-content !important;
-            margin: .12rem 0 .34rem 0 !important;
-            padding: .13rem .42rem !important;
-            border-radius: 999px !important;
-            background: rgba(24,169,153,.10) !important;
-            color: var(--rf-teal-dark) !important;
-            font-size: .62rem !important;
-            font-weight: 850 !important;
-            text-transform: uppercase !important;
-        }}
-        .rf-voice-finished {{
-            background: rgba(255,255,255,.88) !important;
-            border: 1px solid rgba(24,169,153,.20) !important;
-            border-radius: 14px !important;
-            padding: .65rem .75rem !important;
-            color: var(--rf-teal-dark) !important;
-            font-weight: 850 !important;
-            font-size: .86rem !important;
-            text-align: center !important;
-        }}
-        iframe[title="rf_voice_assistant"] {{
-            border-radius: 12px !important;
-            overflow: hidden !important;
-        }}
-</style>
+        </style>
         """,
         unsafe_allow_html=True,
     )
 
 
 def render_rf_logo_sidebar() -> None:
+    """Muestra el logo del sidebar de forma robusta desde assets/."""
+    logo_html = logo_img(86) or "📦"
     st.sidebar.markdown(
-        f"""
-        <div class="rf-sidebar-logo">
-            {{logo_img(86)}}
-        </div>
-        """,
+        '<div class="rf-sidebar-logo">' + logo_html + '</div>',
         unsafe_allow_html=True,
     )
 
@@ -1685,7 +1634,7 @@ def render_rf_product_card(product: dict | None, searched_code: str) -> None:
             f"""
             <div class="rf-card rf-product-error">
                 <div class="rf-kicker">Código no encontrado</div>
-                <div class="rf-product-title">❌ {{searched_code}}</div>
+                <div class="rf-product-title">❌ {searched_code}</div>
                 <div style="color:var(--rf-muted);font-weight:650;">
                     El SKU/EAN escaneado no existe o está inactivo.
                 </div>
@@ -1701,13 +1650,13 @@ def render_rf_product_card(product: dict | None, searched_code: str) -> None:
         f"""
         <div class="rf-card rf-product-ok">
             <div class="rf-kicker">Código reconocido ✅</div>
-            <div class="rf-product-title">{{product.get('nombre_producto','')}}</div>
+            <div class="rf-product-title">{product.get('nombre_producto','')}</div>
             <div class="rf-grid">
-                <div class="rf-field"><div class="rf-label">SKU</div><div class="rf-value">{{product.get('sku','')}}</div></div>
-                <div class="rf-field"><div class="rf-label">EAN</div><div class="rf-value">{{ean}}</div></div>
-                <div class="rf-field"><div class="rf-label">Unidad</div><div class="rf-value">{{product.get('codigo_unidad','')}}</div></div>
-                <div class="rf-field"><div class="rf-label">Categoría</div><div class="rf-value">{{product.get('nombre_categoria','')}}</div></div>
-                <div class="rf-field"><div class="rf-label">Aplica lote</div><div class="rf-value">{{flag_lote}}</div></div>
+                <div class="rf-field"><div class="rf-label">SKU</div><div class="rf-value">{product.get('sku','')}</div></div>
+                <div class="rf-field"><div class="rf-label">EAN</div><div class="rf-value">{ean}</div></div>
+                <div class="rf-field"><div class="rf-label">Unidad</div><div class="rf-value">{product.get('codigo_unidad','')}</div></div>
+                <div class="rf-field"><div class="rf-label">Categoría</div><div class="rf-value">{product.get('nombre_categoria','')}</div></div>
+                <div class="rf-field"><div class="rf-label">Aplica lote</div><div class="rf-value">{flag_lote}</div></div>
             </div>
         </div>
         """,
