@@ -1,0 +1,266 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<style>
+  :root {
+    --navy:#142534;
+    --teal-dark:#0E5663;
+    --teal:#18A999;
+    --gold:#F2C94C;
+    --bg:#F4FAFA;
+    --border:#DCE7EA;
+    --muted:#6B7A86;
+    --danger:#D64545;
+  }
+  html, body { margin:0; padding:0; background:transparent; font-family: Arial, sans-serif; color:var(--navy); overflow:hidden; }
+  .voice-wrap {
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.95);
+    border-radius:13px;
+    padding:7px;
+    box-sizing:border-box;
+    width:100%;
+  }
+  .voice-top { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:5px; }
+  .voice-title { font-size:11px; font-weight:800; color:var(--teal-dark); letter-spacing:.02em; text-transform:uppercase; }
+  .voice-status { font-size:10px; color:var(--muted); text-align:right; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .voice-status.ok { color:#047857; font-weight:700; }
+  .voice-status.err { color:var(--danger); font-weight:700; }
+  .voice-buttons { display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; }
+  button {
+    border:0;
+    border-radius:10px;
+    min-height:28px;
+    padding:4px 4px;
+    font-size:11px;
+    font-weight:800;
+    color:white;
+    background:linear-gradient(135deg,var(--teal-dark),var(--teal));
+    cursor:pointer;
+  }
+  button.secondary { background:#eef7f6; color:var(--teal-dark); border:1px solid rgba(14,86,99,.16); }
+  button.danger { background:#fff1f1; color:#991b1b; border:1px solid rgba(214,69,69,.22); }
+  button:disabled { opacity:.50; cursor:not-allowed; }
+  .transcript { margin-top:5px; padding:5px 7px; border-radius:10px; background:#F8FBFC; color:var(--navy); font-size:10px; line-height:1.25; min-height:14px; }
+  .hint { margin-top:4px; color:var(--muted); font-size:9px; line-height:1.25; }
+  .pulse { display:inline-block; width:7px; height:7px; border-radius:999px; background:var(--teal); margin-right:4px; box-shadow:0 0 0 0 rgba(24,169,153,.65); animation:pulse 1.3s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(24,169,153,.65)} 70%{box-shadow:0 0 0 8px rgba(24,169,153,0)} 100%{box-shadow:0 0 0 0 rgba(24,169,153,0)} }
+</style>
+</head>
+<body>
+<div class="voice-wrap">
+  <div class="voice-top">
+    <div class="voice-title">Voice Picking</div>
+    <div id="status" class="voice-status">Listo</div>
+  </div>
+  <div class="voice-buttons">
+    <button id="speakBtn" type="button">🔊 Repetir</button>
+    <button id="listenBtn" type="button" class="secondary">🎙️ Hablar</button>
+    <button id="stopBtn" type="button" class="danger">■ Parar</button>
+  </div>
+  <div id="transcript" class="transcript">Comandos: confirmar, repetir, cancelar, corto, ayuda.</div>
+  <div class="hint">Recomendado: escuchar la instrucción y hablar después de que termine.</div>
+</div>
+<script>
+let args = {};
+let renderedOnce = false;
+let lastAutoPlayNonce = null;
+let lastListenNonce = null;
+let recognition = null;
+let listening = false;
+let speaking = false;
+let lastTranscript = '';
+let lastCommandTs = 0;
+
+const statusEl = document.getElementById('status');
+const transcriptEl = document.getElementById('transcript');
+const speakBtn = document.getElementById('speakBtn');
+const listenBtn = document.getElementById('listenBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function sendMessage(type, data) {
+  window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, '*');
+}
+function componentReady() { sendMessage('streamlit:componentReady', { apiVersion: 1 }); }
+function setFrameHeight(height) { sendMessage('streamlit:setFrameHeight', { height }); }
+function setComponentValue(value) { sendMessage('streamlit:setComponentValue', { value, dataType: 'json' }); }
+function setStatus(text, cls='') { statusEl.innerHTML = text; statusEl.className = 'voice-status ' + cls; }
+function setTranscript(text) { transcriptEl.textContent = text || ''; }
+
+function normalize(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,;:!¿?¡]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function commandFromText(text) {
+  const t = normalize(text);
+  if (!t) return '';
+  if (/(confirmar auditoria|cerrar picking|finalizar auditoria|terminar auditoria|confirmo auditoria)/.test(t)) return 'CONFIRMAR_AUDITORIA';
+  if (/(confirmar corto|confirmo corto|aceptar corto|guardar corto)/.test(t)) return 'CONFIRMAR_CORTO';
+  if (/(confirmar|confirmo|listo|hecho|ok|okay|correcto|si confirmo|aceptar)/.test(t)) return 'CONFIRMAR';
+  if (/(repetir|repite|otra vez|de nuevo|repitelo|repita)/.test(t)) return 'REPETIR';
+  if (/(cancelar|salir|detener|terminar|volver|parar)/.test(t)) return 'CANCELAR';
+  if (/(corto|falta|faltante|no hay|no encuentro|incompleto|diferencia)/.test(t)) return 'CORTO';
+  if (/(ayuda|comandos|opciones)/.test(t)) return 'AYUDA';
+  if (/(si|sí|correcto)/.test(t)) return 'SI';
+  if (/(no|negativo)/.test(t)) return 'NO';
+  const qty = parseQuantity(t);
+  if (qty !== null) return 'CANTIDAD';
+  return 'NO_RECONOCIDO';
+}
+function parseQuantity(text) {
+  const t = normalize(text).replace(',', '.');
+  const num = t.match(/\b\d+(?:\.\d+)?\b/);
+  if (num) return parseFloat(num[0]);
+  const words = {
+    'cero':0,'uno':1,'una':1,'un':1,'dos':2,'tres':3,'cuatro':4,'cinco':5,'seis':6,'siete':7,'ocho':8,'nueve':9,'diez':10,
+    'once':11,'doce':12,'trece':13,'catorce':14,'quince':15,'dieciseis':16,'diecisiete':17,'dieciocho':18,'diecinueve':19,
+    'veinte':20,'treinta':30,'cuarenta':40,'cincuenta':50,'sesenta':60,'setenta':70,'ochenta':80,'noventa':90,'cien':100
+  };
+  if (Object.prototype.hasOwnProperty.call(words, t)) return words[t];
+  return null;
+}
+
+function stopAll() {
+  try { if (recognition) recognition.stop(); } catch(e) {}
+  try { window.speechSynthesis.cancel(); } catch(e) {}
+  listening = false;
+  speaking = false;
+  setStatus('Detenido');
+}
+function chooseVoice() {
+  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  if (!voices || !voices.length) return null;
+  const lang = String(args.lang || 'es-PE').toLowerCase();
+  return voices.find(v => String(v.lang || '').toLowerCase() === lang)
+      || voices.find(v => String(v.lang || '').toLowerCase().startsWith('es'))
+      || voices[0];
+}
+function speakInstruction(autoListen=false) {
+  const text = String(args.instruction || '').trim();
+  if (!text || !('speechSynthesis' in window)) {
+    setStatus('Síntesis de voz no disponible', 'err');
+    return;
+  }
+  stopAll();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = args.lang || 'es-PE';
+  utter.rate = Number(args.rate || 1.02);
+  utter.pitch = Number(args.pitch || 1.0);
+  utter.volume = Number(args.volume || 1.0);
+  const voice = chooseVoice();
+  if (voice) utter.voice = voice;
+  utter.onstart = () => { speaking = true; setStatus('Hablando...'); };
+  utter.onend = () => {
+    speaking = false;
+    setStatus(autoListen ? 'Escuchando...' : 'Listo');
+    setComponentValue({ event:'played', ts: Date.now(), task_key: args.task_key || '' });
+    if (autoListen) setTimeout(() => startListening(), Number(args.listen_delay_ms || 350));
+  };
+  utter.onerror = () => { speaking = false; setStatus('Error de audio', 'err'); };
+  window.speechSynthesis.speak(utter);
+}
+function makeRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  const rec = new SpeechRecognition();
+  rec.lang = args.lang || 'es-PE';
+  rec.interimResults = false;
+  rec.maxAlternatives = 3;
+  rec.continuous = false;
+  return rec;
+}
+function startListening() {
+  const rec = makeRecognition();
+  if (!rec) {
+    setStatus('Reconocimiento no disponible en este Chrome', 'err');
+    setComponentValue({ event:'speech_not_supported', ts: Date.now(), task_key: args.task_key || '' });
+    return;
+  }
+  try { if (recognition) recognition.stop(); } catch(e) {}
+  recognition = rec;
+  listening = true;
+  setStatus('<span class="pulse"></span>Escuchando...');
+  setTranscript('Habla ahora: confirmar, repetir, cancelar, corto.');
+  const timeoutMs = Number(args.listen_timeout_ms || 6500);
+  const timeout = setTimeout(() => {
+    try { rec.stop(); } catch(e) {}
+  }, timeoutMs);
+  rec.onresult = (event) => {
+    clearTimeout(timeout);
+    listening = false;
+    const result = event.results && event.results[0] ? event.results[0] : null;
+    let transcript = '';
+    let confidence = 0;
+    if (result && result[0]) {
+      transcript = result[0].transcript || '';
+      confidence = result[0].confidence || 0;
+    }
+    lastTranscript = transcript;
+    const command = commandFromText(transcript);
+    const qty = parseQuantity(transcript);
+    const now = Date.now();
+    if (now - lastCommandTs < 300) return;
+    lastCommandTs = now;
+    setTranscript('Reconocido: ' + transcript + ' → ' + command);
+    setStatus(command === 'NO_RECONOCIDO' ? 'No reconocido' : 'Comando reconocido', command === 'NO_RECONOCIDO' ? 'err' : 'ok');
+    setComponentValue({
+      event:'command',
+      transcript,
+      command,
+      quantity: qty,
+      confidence,
+      ts: now,
+      task_key: args.task_key || ''
+    });
+  };
+  rec.onerror = (e) => {
+    clearTimeout(timeout);
+    listening = false;
+    setStatus('Error de micrófono: ' + (e.error || ''), 'err');
+    setComponentValue({ event:'recognition_error', error:e.error || '', ts: Date.now(), task_key: args.task_key || '' });
+  };
+  rec.onend = () => {
+    clearTimeout(timeout);
+    if (listening) setStatus('Sin comando detectado');
+    listening = false;
+  };
+  try { rec.start(); } catch(e) { setStatus('No se pudo escuchar', 'err'); }
+}
+
+speakBtn.onclick = () => speakInstruction(false);
+listenBtn.onclick = () => startListening();
+stopBtn.onclick = () => stopAll();
+
+window.addEventListener('message', (event) => {
+  if (!event.data || event.data.type !== 'streamlit:render') return;
+  args = event.data.args || {};
+  setFrameHeight(Number(args.height || 118));
+  if (!renderedOnce) {
+    componentReady();
+    renderedOnce = true;
+  }
+  if (!('speechSynthesis' in window)) setStatus('Voz de salida no disponible', 'err');
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    setTranscript('Reconocimiento de voz no disponible. Usa Chrome actualizado o confirma manualmente.');
+  }
+  if (args.auto_play && args.auto_play_nonce !== lastAutoPlayNonce) {
+    lastAutoPlayNonce = args.auto_play_nonce;
+    setTimeout(() => speakInstruction(Boolean(args.auto_listen)), Number(args.auto_delay_ms || 250));
+  }
+  if (args.listen_nonce && args.listen_nonce !== lastListenNonce) {
+    lastListenNonce = args.listen_nonce;
+    setTimeout(() => startListening(), 100);
+  }
+});
+componentReady();
+setFrameHeight(118);
+</script>
+</body>
+</html>
