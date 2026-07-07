@@ -25,6 +25,7 @@ from src.rf_scanner import consume_scanned_value, scan_text_input
 from src.rf_voice import (
     build_audit_prompt,
     build_task_prompt,
+    build_voice_prompt_for_phase,
     consume_voice_event,
     handle_help_text,
     log_voice_event,
@@ -146,6 +147,15 @@ def _clear_rf_session_state() -> None:
         "rf_voice_short_qty",
         "rf_voice_short_transcript",
         "rf_voice_processed_event",
+        "rf_voice_picking_id",
+        "rf_voice_picking_nro",
+        "rf_voice_picking_mode",
+        "rf_voice_picking_total",
+        "rf_voice_done_session",
+        "rf_voice_phase",
+        "rf_voice_last_zone",
+        "rf_voice_convo_key",
+        "rf_voice_cancel_previous_phase",
     ]:
         if key in st.session_state:
             del st.session_state[key]
@@ -368,6 +378,14 @@ def render_sidebar() -> None:
             key="rf_nav_picking",
             on_click=_set_page,
             args=("Picking",),
+        )
+        st.button(
+            "◉ Voice Picking",
+            use_container_width=True,
+            type="primary" if current_page == "Voice Picking" else "secondary",
+            key="rf_nav_voice_picking",
+            on_click=_set_page,
+            args=("Voice Picking",),
         )
         st.button(
             "⇄ Transferencia",
@@ -829,38 +847,7 @@ def _render_picking_tareas() -> None:
         unsafe_allow_html=True,
     )
 
-    voice_key = f"rf_voice_task_{int(tarea['id_picking_detalle'])}"
-    previous_voice_key = st.session_state.get("rf_voice_task_key")
-    if previous_voice_key != voice_key:
-        st.session_state.rf_voice_task_key = voice_key
-        st.session_state.rf_voice_short_pending = False
-        st.session_state.rf_voice_short_task_id = None
-        st.session_state.rf_voice_short_qty = None
-        st.session_state.rf_voice_short_transcript = ""
-        reset_voice_autoplay(voice_key)
-
-    voice_enabled = st.toggle("Voice", value=bool(st.session_state.get("rf_voice_enabled", True)), key="rf_voice_enabled")
-    auto_listen = st.toggle("Escucha breve", value=bool(st.session_state.get("rf_voice_auto_listen", False)), key="rf_voice_auto_listen")
-
-    prompt = build_task_prompt(tarea, current, total)
-    if st.session_state.get("rf_voice_short_pending") and st.session_state.get("rf_voice_short_task_id") == int(tarea["id_picking_detalle"]):
-        qty = st.session_state.get("rf_voice_short_qty")
-        if qty is None:
-            prompt = "Indique cantidad encontrada para el corto. Diga un número."
-        else:
-            prompt = f"Cantidad encontrada {qty}. Diga confirmar corto para registrar la incidencia o cancelar para salir."
-
-    if voice_enabled:
-        voice_event = render_voice_assistant(
-            prompt,
-            key=voice_key,
-            auto_play=True,
-            auto_listen=auto_listen,
-            height=118,
-        )
-        voice_event = consume_voice_event(voice_event, f"rf_voice_processed_{voice_key}")
-        if voice_event:
-            _handle_picking_voice_command(voice_event, tarea, current, total, done, prompt, voice_key)
+    # Picking manual: sin Voice Picking. Use la función separada "Voice Picking" para atención conversacional.
 
     col1, col2 = st.columns(2)
     if col1.button("Confirmar", type="primary", use_container_width=True):
@@ -908,37 +895,466 @@ def _render_picking_auditoria() -> None:
         st.dataframe(auditoria, use_container_width=True, hide_index=True)
         rows = auditoria.to_dict("records")
 
-    audit_key = f"rf_voice_audit_{id_picking}"
-    audit_prompt = build_audit_prompt(rows)
-    voice_enabled = bool(st.session_state.get("rf_voice_enabled", True))
-    if voice_enabled:
-        voice_event = render_voice_assistant(
-            audit_prompt,
-            key=audit_key,
-            auto_play=True,
-            auto_listen=bool(st.session_state.get("rf_voice_auto_listen", False)),
-            height=118,
-        )
-        voice_event = consume_voice_event(voice_event, f"rf_voice_processed_{audit_key}")
-        if voice_event:
-            command = str(voice_event.get("command") or "").upper()
-            log_voice_event(
-                id_usuario=current_user_id(),
-                id_picking=id_picking,
-                evento="AUDITORIA_COMANDO_VOZ",
-                texto_emitido=audit_prompt,
-                texto_reconocido=voice_event.get("transcript"),
-                comando_normalizado=command,
-                confianza=voice_event.get("confidence"),
-            )
-            if command == "CONFIRMAR_AUDITORIA":
-                _back_to_picking_list()
-            elif command == "REPETIR":
-                reset_voice_autoplay(audit_key)
-                st.rerun()
+    # Auditoría manual: la auditoría por voz se maneja en la función separada "Voice Picking".
 
     if st.button("Confirmar auditoría", type="primary", use_container_width=True):
         _back_to_picking_list()
+
+
+
+# ---------------------------------------------------------------------------
+# Voice Picking RF conversacional
+# ---------------------------------------------------------------------------
+
+
+def _start_voice_picking(id_picking: int, nro_picking: str, total_tareas: int) -> None:
+    st.session_state.rf_voice_picking_id = int(id_picking)
+    st.session_state.rf_voice_picking_nro = nro_picking
+    st.session_state.rf_voice_picking_mode = "start"
+    st.session_state.rf_voice_picking_total = int(total_tareas or 0)
+    st.session_state.rf_voice_done_session = 0
+    st.session_state.rf_voice_phase = "start"
+    st.session_state.rf_voice_last_zone = ""
+    st.session_state.rf_voice_short_qty = None
+    st.session_state.rf_voice_short_transcript = ""
+    st.session_state.rf_voice_cancel_previous_phase = "location"
+    for key in [
+        "rf_voice_convo_key",
+        "rf_voice_processed_event",
+        "rf_voice_cancel_pending",
+    ]:
+        st.session_state.pop(key, None)
+    rf_clear_master_cache()
+    st.rerun()
+
+
+def _back_to_voice_picking_list() -> None:
+    for key in [
+        "rf_voice_picking_id",
+        "rf_voice_picking_nro",
+        "rf_voice_picking_mode",
+        "rf_voice_picking_total",
+        "rf_voice_done_session",
+        "rf_voice_phase",
+        "rf_voice_last_zone",
+        "rf_voice_short_qty",
+        "rf_voice_short_transcript",
+        "rf_voice_convo_key",
+        "rf_voice_cancel_previous_phase",
+        "rf_voice_processed_event",
+    ]:
+        st.session_state.pop(key, None)
+    rf_clear_master_cache()
+    st.rerun()
+
+
+def render_voice_picking() -> None:
+    mode = st.session_state.get("rf_voice_picking_mode", "lista")
+    if mode in {"start", "tareas"} and st.session_state.get("rf_voice_picking_id"):
+        _render_voice_picking_tareas()
+    elif mode == "auditoria" and st.session_state.get("rf_voice_picking_id"):
+        _render_voice_picking_auditoria()
+    elif mode == "farewell" and st.session_state.get("rf_voice_picking_id"):
+        _render_voice_picking_farewell()
+    else:
+        _render_voice_picking_lista()
+
+
+def _render_voice_picking_lista() -> None:
+    data = rf_get_pickings_pendientes()
+    if data.empty:
+        st.info("No hay pickings pendientes para Voice Picking.")
+        return
+
+    st.markdown('<div class="rf-kicker">Voice Picking pendiente</div>', unsafe_allow_html=True)
+    for _, row in data.iterrows():
+        st.markdown(
+            f"""
+            <div class="rf-picking-card rf-voice-card">
+                <div class="rf-picking-title">◉ {row['nro_picking']}</div>
+                <div class="rf-picking-sub"><b>Solicitante:</b> {row.get('solicitante') or '-'}</div>
+                <div class="rf-picking-sub"><b>Cuenta:</b> {row.get('cuenta_logistica') or '-'}</div>
+                <div class="rf-pill-row">
+                    <div class="rf-pill">Qty: {float(row.get('cantidad_total') or 0):,.2f}</div>
+                    <div class="rf-pill">Códigos: {int(row.get('codigos') or 0)}</div>
+                    <div class="rf-pill">Ubicaciones: {int(row.get('ubicaciones') or 0)}</div>
+                    <div class="rf-pill">Tareas: {int(row.get('tareas_pendientes') or 0)}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            f"Iniciar voz {row['nro_picking']}",
+            key=f"rf_voice_start_pk_{row['id_picking']}",
+            use_container_width=True,
+            type="primary",
+        ):
+            _start_voice_picking(int(row["id_picking"]), str(row["nro_picking"]), int(row.get("tareas_pendientes") or 0))
+
+
+def _voice_current_task() -> tuple[pd.DataFrame, dict | None, int, int, int]:
+    id_picking = int(st.session_state.rf_voice_picking_id)
+    tareas = rf_get_tareas_picking(id_picking)
+    total = int(st.session_state.get("rf_voice_picking_total") or len(tareas))
+    done = int(st.session_state.get("rf_voice_done_session") or 0)
+    if tareas.empty:
+        return tareas, None, min(done + 1, max(total, 1)), total, done
+    tarea = tareas.iloc[0].to_dict()
+    current = min(done + 1, total if total > 0 else 1)
+    return tareas, tarea, current, total, done
+
+
+def _voice_set_phase(phase: str) -> None:
+    st.session_state.rf_voice_phase = phase
+    st.session_state.pop("rf_voice_convo_key", None)
+
+
+def _voice_repeat() -> None:
+    key = st.session_state.get("rf_voice_convo_key")
+    if key:
+        reset_voice_autoplay(str(key))
+
+
+def _render_voice_instruction_help(phase: str) -> None:
+    help_text = handle_help_text(phase)
+    st.markdown(
+        f"""
+        <div class="rf-voice-help">
+            <div class="rf-voice-help-title">Puedes decir</div>
+            <div>{help_text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_voice_task_card(tarea: dict, current: int, total: int, phase: str) -> None:
+    st.markdown(
+        f"""
+        <div class="rf-task-main rf-task-compact rf-voice-task">
+            <div class="rf-task-header">
+                <div class="rf-task-pk">{st.session_state.get('rf_voice_picking_nro', '')}</div>
+                <div class="rf-task-counter">Tarea {current}/{total}</div>
+            </div>
+            <div class="rf-voice-step">Paso: {phase.replace('_', ' ').title()}</div>
+            <div class="rf-task-row">
+                <div>
+                    <div class="rf-task-big-label">Ubicación</div>
+                    <div class="rf-task-big-value rf-location-value">{tarea.get('codigo_ubicacion')}</div>
+                </div>
+                <div>
+                    <div class="rf-task-big-label">Cantidad</div>
+                    <div class="rf-task-big-value rf-qty-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
+                </div>
+            </div>
+            <div class="rf-task-big-label">Artículo</div>
+            <div class="rf-task-product">{tarea.get('sku')} · {tarea.get('nombre_producto')}</div>
+            <div class="rf-grid rf-grid-compact">
+                <div class="rf-field"><div class="rf-label">Zona</div><div class="rf-value">{tarea.get('codigo_zona')} - {tarea.get('nombre_zona')}</div></div>
+                <div class="rf-field"><div class="rf-label">Cuenta</div><div class="rf-value">{tarea.get('codigo_cuenta')}</div></div>
+                <div class="rf-field"><div class="rf-label">Unidad</div><div class="rf-value">{tarea.get('nombre_unidad') or tarea.get('codigo_unidad')}</div></div>
+                <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{tarea.get('lote') or '-'}</div></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _confirm_current_voice_task(tarea: dict, current: int, done: int, event: dict | None = None) -> None:
+    try:
+        confirmar_tarea_picking_rf(int(tarea["id_picking_detalle"]), current_user_id())
+        mark_task_voice_confirmation(
+            id_picking_detalle=int(tarea["id_picking_detalle"]),
+            transcript=(event or {}).get("transcript"),
+            confidence=(event or {}).get("confidence"),
+        )
+        log_voice_event(
+            id_usuario=current_user_id(),
+            id_picking=int(tarea["id_picking"]),
+            id_picking_detalle=int(tarea["id_picking_detalle"]),
+            evento="TAREA_CONFIRMADA_VOZ_CONVERSACIONAL",
+            texto_reconocido=(event or {}).get("transcript"),
+            comando_normalizado=(event or {}).get("command"),
+            confianza=(event or {}).get("confidence"),
+        )
+        st.session_state.rf_voice_done_session = done + 1
+        st.session_state.rf_voice_last_zone = str(tarea.get("codigo_zona") or tarea.get("nombre_zona") or "")
+        st.session_state.rf_voice_short_qty = None
+        st.session_state.rf_voice_short_transcript = ""
+        _voice_set_phase("location")
+        rf_clear_master_cache()
+        st.rerun()
+    except Exception as exc:
+        st.error("No se pudo confirmar la tarea por voz.")
+        with st.expander("Detalle técnico"):
+            st.code(str(exc))
+
+
+def _handle_voice_conversation_command(event: dict, tarea: dict, current: int, total: int, done: int, prompt: str) -> None:
+    command = str(event.get("command") or "").upper()
+    phase = str(st.session_state.get("rf_voice_phase") or "start")
+    transcript = str(event.get("transcript") or "")
+    confidence = event.get("confidence")
+
+    log_voice_event(
+        id_usuario=current_user_id(),
+        id_picking=int(tarea.get("id_picking") or st.session_state.rf_voice_picking_id),
+        id_picking_detalle=int(tarea.get("id_picking_detalle") or 0) if tarea else None,
+        evento="COMANDO_VOZ_CONVERSACIONAL" if command != "NO_RECONOCIDO" else "COMANDO_NO_RECONOCIDO",
+        texto_emitido=prompt,
+        texto_reconocido=transcript,
+        comando_normalizado=command,
+        confianza=confidence,
+    )
+
+    if command in {"REPETIR", "NO_RECONOCIDO", "AYUDA"}:
+        _voice_repeat()
+        st.rerun()
+        return
+
+    if command == "REPETIR_UBICACION":
+        _voice_set_phase("location")
+        st.rerun()
+        return
+    if command == "REPETIR_CODIGO":
+        _voice_set_phase("material")
+        st.rerun()
+        return
+    if command == "REPETIR_CANTIDAD":
+        _voice_set_phase("quantity")
+        st.rerun()
+        return
+
+    if command == "CANCELAR_PICKING":
+        if phase == "cancel_confirm":
+            _back_to_voice_picking_list()
+            return
+        st.session_state.rf_voice_cancel_previous_phase = phase
+        _voice_set_phase("cancel_confirm")
+        st.rerun()
+        return
+
+    if phase == "cancel_confirm":
+        if command in {"NO", "OK", "CONFIRMAR", "ESTOY_AQUI"}:
+            _voice_set_phase(str(st.session_state.get("rf_voice_cancel_previous_phase") or "location"))
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "start":
+        if command in {"INICIAR", "OK", "CONFIRMAR"}:
+            _voice_set_phase("location")
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "location":
+        if command in {"ESTOY_AQUI", "OK", "CONFIRMAR"}:
+            _voice_set_phase("material")
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "material":
+        if command in {"OK", "CONFIRMAR", "SI"}:
+            _voice_set_phase("quantity")
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "quantity":
+        if command in {"OK", "CONFIRMAR", "SI"}:
+            _confirm_current_voice_task(tarea, current, done, event)
+        elif command == "CORTO":
+            st.session_state.rf_voice_short_qty = None
+            st.session_state.rf_voice_short_transcript = transcript
+            _voice_set_phase("short_qty")
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "short_qty":
+        if command == "CANTIDAD" and event.get("quantity") is not None:
+            st.session_state.rf_voice_short_qty = event.get("quantity")
+            st.session_state.rf_voice_short_transcript = transcript
+            _voice_set_phase("short_confirm")
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+        return
+
+    if phase == "short_confirm":
+        if command == "CANTIDAD" and event.get("quantity") is not None:
+            st.session_state.rf_voice_short_qty = event.get("quantity")
+            st.session_state.rf_voice_short_transcript = transcript
+            _voice_repeat()
+            st.rerun()
+        elif command == "CONFIRMAR_CORTO":
+            qty = st.session_state.get("rf_voice_short_qty")
+            register_voice_short_incident(
+                id_usuario=current_user_id(),
+                id_picking=int(tarea["id_picking"]),
+                id_picking_detalle=int(tarea["id_picking_detalle"]),
+                cantidad_reportada=float(qty) if qty is not None else None,
+                transcript=st.session_state.get("rf_voice_short_transcript") or transcript,
+                confidence=confidence,
+            )
+            st.session_state.rf_voice_done_session = done + 1
+            st.session_state.rf_voice_last_zone = str(tarea.get("codigo_zona") or tarea.get("nombre_zona") or "")
+            st.session_state.rf_voice_short_qty = None
+            st.session_state.rf_voice_short_transcript = ""
+            _voice_set_phase("location")
+            rf_clear_master_cache()
+            st.rerun()
+        else:
+            _voice_repeat()
+            st.rerun()
+
+
+def _render_voice_picking_tareas() -> None:
+    tareas, tarea, current, total, done = _voice_current_task()
+    if tarea is None:
+        st.session_state.rf_voice_picking_mode = "auditoria"
+        _voice_set_phase("audit")
+        st.rerun()
+
+    phase = str(st.session_state.get("rf_voice_phase") or "start")
+    if phase not in {"start", "location", "material", "quantity", "short_qty", "short_confirm", "cancel_confirm"}:
+        phase = "location"
+        st.session_state.rf_voice_phase = phase
+
+    _render_voice_task_card(tarea, current, total, phase)
+    _render_voice_instruction_help(phase)
+
+    include_zone = str(st.session_state.get("rf_voice_last_zone") or "") != str(tarea.get("codigo_zona") or tarea.get("nombre_zona") or "")
+    prompt = build_voice_prompt_for_phase(
+        tarea,
+        current=current,
+        total=total,
+        phase=phase,
+        nro_picking=str(st.session_state.get("rf_voice_picking_nro") or ""),
+        include_zone=include_zone,
+        short_qty=st.session_state.get("rf_voice_short_qty"),
+    )
+
+    phase_key = f"{int(tarea['id_picking_detalle'])}_{phase}_{st.session_state.get('rf_voice_short_qty','')}"
+    voice_key = f"rf_voice_convo_{phase_key}"
+    previous_voice_key = st.session_state.get("rf_voice_convo_key")
+    if previous_voice_key != voice_key:
+        st.session_state.rf_voice_convo_key = voice_key
+        reset_voice_autoplay(voice_key)
+
+    voice_event = render_voice_assistant(
+        prompt,
+        key=voice_key,
+        auto_play=True,
+        auto_listen=True,
+        listen_timeout_ms=7200,
+        height=86,
+        rate=1.28,
+        show_controls=False,
+        commands_hint=handle_help_text(phase),
+    )
+    voice_event = consume_voice_event(voice_event, f"rf_voice_processed_{voice_key}")
+    if voice_event:
+        _handle_voice_conversation_command(voice_event, tarea, current, total, done, prompt)
+
+
+def _render_voice_picking_auditoria() -> None:
+    id_picking = int(st.session_state.rf_voice_picking_id)
+    nro = st.session_state.get("rf_voice_picking_nro", "")
+    st.markdown(f'<div class="rf-kicker">Auditoría {nro}</div>', unsafe_allow_html=True)
+    auditoria = rf_get_auditoria_picking(id_picking)
+    rows = auditoria.to_dict("records") if not auditoria.empty else []
+    if auditoria.empty:
+        st.info("No hay tareas completadas para auditar.")
+    else:
+        st.dataframe(auditoria, use_container_width=True, hide_index=True)
+
+    prompt = build_audit_prompt(rows)
+    audit_key = f"rf_voice_convo_audit_{id_picking}"
+    if st.session_state.get("rf_voice_convo_key") != audit_key:
+        st.session_state.rf_voice_convo_key = audit_key
+        reset_voice_autoplay(audit_key)
+    st.markdown(
+        """
+        <div class="rf-voice-help">
+            <div class="rf-voice-help-title">Puedes decir</div>
+            <div>confirmar auditoría, repetir resumen o cancelar picking.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    event = render_voice_assistant(
+        prompt,
+        key=audit_key,
+        auto_play=True,
+        auto_listen=True,
+        listen_timeout_ms=7200,
+        height=86,
+        rate=1.25,
+        show_controls=False,
+        commands_hint="confirmar auditoría, repetir resumen o cancelar picking",
+    )
+    event = consume_voice_event(event, f"rf_voice_processed_{audit_key}")
+    if event:
+        command = str(event.get("command") or "").upper()
+        log_voice_event(
+            id_usuario=current_user_id(),
+            id_picking=id_picking,
+            evento="AUDITORIA_COMANDO_VOZ_CONVERSACIONAL",
+            texto_emitido=prompt,
+            texto_reconocido=event.get("transcript"),
+            comando_normalizado=command,
+            confianza=event.get("confidence"),
+        )
+        if command == "CONFIRMAR_AUDITORIA":
+            st.session_state.rf_voice_picking_mode = "farewell"
+            _voice_set_phase("farewell")
+            st.rerun()
+        elif command in {"REPETIR", "NO_RECONOCIDO"}:
+            _voice_repeat()
+            st.rerun()
+        elif command == "CANCELAR_PICKING":
+            _back_to_voice_picking_list()
+
+
+def _render_voice_picking_farewell() -> None:
+    id_picking = int(st.session_state.rf_voice_picking_id)
+    nro = st.session_state.get("rf_voice_picking_nro", "")
+    prompt = build_voice_prompt_for_phase({}, current=0, total=0, phase="farewell", nro_picking=nro)
+    key = f"rf_voice_farewell_{id_picking}"
+    if st.session_state.get("rf_voice_convo_key") != key:
+        st.session_state.rf_voice_convo_key = key
+        reset_voice_autoplay(key)
+    st.markdown('<div class="rf-voice-finished">Picking finalizado. Volviendo al listado...</div>', unsafe_allow_html=True)
+    event = render_voice_assistant(
+        prompt,
+        key=key,
+        auto_play=True,
+        auto_listen=False,
+        height=76,
+        rate=1.25,
+        show_controls=False,
+        commands_hint="Finalizando picking",
+        emit_played=True,
+    )
+    event = consume_voice_event(event, f"rf_voice_processed_{key}", include_played=True)
+    if event and event.get("event") == "played":
+        _back_to_voice_picking_list()
 
 
 # ---------------------------------------------------------------------------
@@ -1185,6 +1601,8 @@ def _rf_main() -> None:
         render_ingresos()
     elif page == "Picking":
         render_picking()
+    elif page == "Voice Picking":
+        render_voice_picking()
     elif page == "Transferencia":
         render_transferencia()
     elif page == "Stock":
