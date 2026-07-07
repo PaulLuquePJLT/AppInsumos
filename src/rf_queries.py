@@ -224,6 +224,7 @@ def rf_get_tareas_picking(id_picking: int) -> pd.DataFrame:
                         p.ean_serie,
                         p.nombre_producto,
                         u.codigo_unidad,
+                        u.nombre_unidad,
                         pd.lote,
                         CAST(pd.cantidad_asignada AS DECIMAL(18,2)) AS cantidad_picking,
                         ub.codigo_ubicacion,
