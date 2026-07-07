@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 from sqlalchemy import text
 
 from src.db import get_engine, run_db_with_retry
+from src.movimientos import atender_tarea_picking_con_corto_parcial
 
 
 _COMPONENT_DIR = Path(__file__).resolve().parents[1] / "components" / "rf_voice_assistant"
@@ -439,8 +440,15 @@ def register_voice_short_incident(
     cantidad_reportada: float | None,
     transcript: str | None = None,
     confidence: float | None = None,
-) -> None:
-    """Registra incidencia de corto por voz y mueve la tarea a estado CORTO."""
+) -> dict:
+    """Registra corto parcial por voz.
+
+    Si la tarea tenía 5 unidades asignadas y el operario reporta 3 encontradas,
+    se atienden 3 unidades y se crea una línea CORTO adicional por 2 unidades.
+    """
+    if cantidad_reportada is None:
+        raise ValueError("Indica la cantidad encontrada antes de confirmar el corto.")
+
     log_voice_event(
         id_usuario=id_usuario,
         id_picking=id_picking,
@@ -452,42 +460,25 @@ def register_voice_short_incident(
         confianza=confidence,
     )
 
-    def _op():
-        with get_engine().begin() as conn:
-            has_qty_col = conn.execute(text("SELECT COL_LENGTH('dbo.picking_detalle', 'cantidad_reportada_voz')")).scalar()
-            if has_qty_col:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE dbo.picking_detalle
-                        SET estado = 'CORTO',
-                            metodo_confirmacion = 'VOZ_CORTO',
-                            texto_confirmacion_voz = :transcript,
-                            confianza_voz = :confidence,
-                            cantidad_reportada_voz = :cantidad_reportada,
-                            fecha_confirmacion_voz = dbo.fn_now_bogota_lima()
-                        WHERE id_picking_detalle = :id_picking_detalle
-                        """
-                    ),
-                    {
-                        "id_picking_detalle": int(id_picking_detalle),
-                        "transcript": transcript,
-                        "confidence": confidence,
-                        "cantidad_reportada": cantidad_reportada,
-                    },
-                )
-            else:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE dbo.picking_detalle
-                        SET estado = 'CORTO'
-                        WHERE id_picking_detalle = :id_picking_detalle
-                        """
-                    ),
-                    {"id_picking_detalle": int(id_picking_detalle)},
-                )
-    try:
-        run_db_with_retry(_op)
-    except Exception:
-        return
+    result = atender_tarea_picking_con_corto_parcial(
+        id_picking_detalle=int(id_picking_detalle),
+        cantidad_encontrada=float(cantidad_reportada),
+        id_usuario=int(id_usuario),
+        observacion="Corto reportado por voice picking",
+        requiere_aprobacion_admin=True,
+        origen_atencion="RF",
+        transcript=transcript,
+        confidence=confidence,
+    )
+
+    log_voice_event(
+        id_usuario=id_usuario,
+        id_picking=id_picking,
+        id_picking_detalle=id_picking_detalle,
+        evento="CORTO_CONFIRMADO_VOZ",
+        texto_emitido=None,
+        texto_reconocido=transcript,
+        comando_normalizado="CONFIRMAR_CORTO",
+        confianza=confidence,
+    )
+    return result
