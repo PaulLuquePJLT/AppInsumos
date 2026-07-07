@@ -52,7 +52,7 @@
     <button id="stopBtn" type="button" class="danger">■ Parar</button>
   </div>
   <div id="transcript" class="transcript">Esperando instrucción...</div>
-  <div id="hint" class="hint">Mantén el micrófono habilitado. Usa comandos cortos.</div>
+  <div id="hint" class="hint">Micrófono activo para comandos de voz.</div>
 </div>
 <script>
 let args = {};
@@ -147,7 +147,7 @@ function speakText(text, afterListen=false, presence=false) {
   try { window.speechSynthesis.cancel(); } catch(e) {}
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = args.lang || 'es-PE';
-  utter.rate = Number(args.rate || 1.22);
+  utter.rate = Number(args.rate || 1.38);
   utter.pitch = Number(args.pitch || 1.0);
   utter.volume = Number(args.volume || 1.0);
   const voice = chooseVoice();
@@ -189,7 +189,7 @@ function startListening(presence=false) {
   listening = true;
   hadResult = false;
   setStatus('<span class="pulse"></span>Escuchando...');
-  setTranscript(presence ? 'Responde cualquier palabra para continuar.' : 'Escuchando comando...');
+  setTranscript(presence ? 'Responde para continuar.' : 'Escuchando...');
   const timeoutMs = Number(args.listen_timeout_ms || 7000);
   const timeout = setTimeout(() => { try { rec.stop(); } catch(e) {} }, timeoutMs);
   rec.onresult = (event) => {
@@ -251,7 +251,7 @@ window.addEventListener('message', (event) => {
   args = event.data.args || {};
   setFrameHeight(Number(args.height || 92));
   buttonsEl.className = args.show_controls ? 'voice-buttons' : 'voice-buttons hidden';
-  hintEl.textContent = args.hint || 'Escucha la instrucción y responde con voz.';
+  hintEl.textContent = args.hint || 'Escucha la instrucción y responde.';
   if (!renderedOnce) { componentReady(); renderedOnce = true; }
   if (!('speechSynthesis' in window)) setStatus('Voz no disponible', 'err');
   if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) setTranscript('Reconocimiento de voz no disponible. Usa Chrome actualizado.');
