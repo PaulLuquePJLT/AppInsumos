@@ -152,6 +152,8 @@ def _clear_rf_session_state() -> None:
         "rf_voice_presence_resume",
         "rf_voice_greeting_done",
         "rf_voice_last_zone_code",
+        "rf_voice_last_location_code",
+        "rf_voice_same_location_intro",
     ]:
         if key in st.session_state:
             del st.session_state[key]
@@ -663,6 +665,8 @@ def _reset_voice_state(clear_last_zone: bool = False) -> None:
         st.session_state.pop(key, None)
     if clear_last_zone:
         st.session_state.pop("rf_voice_last_zone_code", None)
+        st.session_state.pop("rf_voice_last_location_code", None)
+        st.session_state.pop("rf_voice_same_location_intro", None)
         st.session_state.pop("rf_voice_greeting_done", None)
         st.session_state.pop("rf_voice_farewell_played", None)
 
@@ -753,6 +757,8 @@ def _render_picking_lista(*, voice: bool = False) -> None:
 
 def _confirm_current_picking_task(tarea: dict, current: int, done: int, *, voice_event: dict | None = None) -> None:
     try:
+        st.session_state.rf_voice_last_location_code = str(tarea.get("codigo_ubicacion") or "")
+        st.session_state.rf_voice_last_zone_code = str(tarea.get("codigo_zona") or "")
         confirmar_tarea_picking_rf(int(tarea["id_picking_detalle"]), current_user_id())
         if voice_event:
             mark_task_voice_confirmation(
@@ -964,6 +970,8 @@ def _handle_voice_command(event: dict, tarea: dict, current: int, total: int, do
                 transcript=st.session_state.get("rf_voice_short_transcript") or transcript,
                 confidence=confidence,
             )
+            st.session_state.rf_voice_last_location_code = str(tarea.get("codigo_ubicacion") or "")
+            st.session_state.rf_voice_last_zone_code = str(tarea.get("codigo_zona") or "")
             _reset_voice_state(clear_last_zone=False)
             # Si encontró algo, se considera una tarea procesada. Si encontró cero,
             # la tarea queda como corto y la lista avanza al siguiente pendiente.
@@ -982,6 +990,7 @@ def _handle_voice_command(event: dict, tarea: dict, current: int, total: int, do
         st.rerun()
 
     if step == "material" and command == "OK":
+        st.session_state.rf_voice_same_location_intro = False
         st.session_state.rf_voice_step = "cantidad"
         st.session_state.rf_voice_cancel_confirm = False
         reset_voice_autoplay(voice_key)
@@ -1019,7 +1028,14 @@ def _render_voice_picking_tareas() -> None:
 
     if st.session_state.get("rf_voice_task_key") != str(tarea["id_picking_detalle"]):
         st.session_state.rf_voice_task_key = str(tarea["id_picking_detalle"])
-        st.session_state.rf_voice_step = "ubicacion"
+        previous_location = str(st.session_state.get("rf_voice_last_location_code") or "")
+        current_location = str(tarea.get("codigo_ubicacion") or "")
+        same_location = bool(previous_location and current_location and previous_location == current_location)
+        st.session_state.rf_voice_same_location_intro = same_location
+        # Si la tarea nueva está en la misma ubicación que la anterior, no volver a pedir
+        # confirmación de ubicación: se informa "en esta misma ubicación" y se pasa
+        # directamente al paso de material.
+        st.session_state.rf_voice_step = "material" if same_location else "ubicacion"
         st.session_state.rf_voice_short_pending = False
         st.session_state.rf_voice_short_qty = None
         st.session_state.rf_voice_short_transcript = ""
@@ -1037,6 +1053,7 @@ def _render_voice_picking_tareas() -> None:
     short_qty = st.session_state.get("rf_voice_short_qty")
     resume = bool(st.session_state.pop("rf_voice_presence_resume", False))
     unrecognized = bool(st.session_state.get("rf_voice_unrecognized"))
+    same_location_intro = bool(st.session_state.get("rf_voice_same_location_intro"))
 
     if unrecognized:
         prompt = "Disculpa, no entendí."
@@ -1053,6 +1070,7 @@ def _render_voice_picking_tareas() -> None:
             cancel_confirm=cancel_confirm,
             short_pending=short_pending,
             short_qty=short_qty,
+            same_location=same_location_intro and step == "material",
         )
     if greeting:
         st.session_state.rf_voice_greeting_done = True
