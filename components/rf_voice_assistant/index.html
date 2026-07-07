@@ -93,7 +93,7 @@ function normalize(text) {
 }
 function parseQuantity(text) {
   const t = normalize(text).replace(',', '.');
-  const num = t.match(/\b\d+(?:\.\d+)?\b/);
+  const num = t.match(/\b\d+(?:\.\d)?\d*\b/);
   if (num) return parseFloat(num[0]);
   const words = {
     'cero':0,'uno':1,'una':1,'un':1,'dos':2,'tres':3,'cuatro':4,'cinco':5,'seis':6,'siete':7,'ocho':8,'nueve':9,'diez':10,
@@ -101,8 +101,22 @@ function parseQuantity(text) {
     'veinte':20,'treinta':30,'cuarenta':40,'cincuenta':50,'sesenta':60,'setenta':70,'ochenta':80,'noventa':90,'cien':100
   };
   if (Object.prototype.hasOwnProperty.call(words, t)) return words[t];
-  return null;
+  const tokens = t.split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    if (Object.prototype.hasOwnProperty.call(words, token)) return words[token];
+  }
+  let total = 0;
+  let found = false;
+  for (const token of tokens) {
+    if (token === 'y') continue;
+    if (Object.prototype.hasOwnProperty.call(words, token)) {
+      total += words[token];
+      found = true;
+    }
+  }
+  return found ? total : null;
 }
+
 function commandFromText(text) {
   const t = normalize(text);
   if (!t) return '';
@@ -237,9 +251,9 @@ function scheduleKeepalive() {
   clearKeepalive();
   if (!args.keepalive) return;
   keepaliveTimer = setTimeout(() => {
-    const prompt = String(args.keepalive_prompt || '¿Estás ahí? Responde sí para continuar.');
+    const prompt = String(args.keepalive_prompt || '¿Estás ahí?');
     speakText(prompt, true, true);
-  }, Number(args.keepalive_ms || 30000));
+  }, Number(args.keepalive_ms || 10000));
 }
 
 speakBtn.onclick = () => speakInstruction(false);
