@@ -1187,6 +1187,387 @@ def cancelar_cortos_picking(ids_cortos: list[int]) -> dict:
     return {"cortos_cancelados": len(cortos), "qty_cancelada": qty_cancelada}
 
 
+def atender_tarea_picking_con_corto_parcial(
+    id_picking_detalle: int,
+    cantidad_encontrada: float,
+    id_usuario: int,
+    observacion: str | None = None,
+    requiere_aprobacion_admin: bool = False,
+    origen_atencion: str = 'RF',
+    transcript: str | None = None,
+    confidence: float | None = None,
+) -> dict:
+    """Atiende parcialmente una tarea y genera un corto por la diferencia.
+
+    Ejemplo operativo:
+        Tarea asignada: 5
+        Operario reporta: 3
+
+    Resultado:
+        - Se atienden 3 unidades.
+        - Se libera toda la reserva original de 5.
+        - Se descuenta del stock físico la cantidad asignada original para no
+          dejar stock fantasma en la ubicación donde el operario no encontró todo.
+        - Se crea una línea adicional de picking_detalle en estado CORTO por 2.
+        - El pedido queda pendiente/corto por esas 2 unidades hasta reasignación
+          o cancelación administrativa.
+    """
+    found_qty = float(cantidad_encontrada or 0)
+    if found_qty < 0:
+        raise ValueError("La cantidad encontrada no puede ser negativa.")
+
+    movimiento_estado = 'PENDIENTE_APROBACION' if requiere_aprobacion_admin else 'CONFIRMADO'
+    origen_atencion = str(origen_atencion or ('RF' if requiere_aprobacion_admin else 'DESKTOP')).upper()
+
+    with get_engine().begin() as conn:
+        tarea = conn.execute(
+            text("""
+                SELECT
+                    pd.*,
+                    ph.nro_picking,
+                    p.sku
+                FROM dbo.picking_detalle pd WITH (UPDLOCK, ROWLOCK)
+                INNER JOIN dbo.picking_header ph ON ph.id_picking = pd.id_picking
+                INNER JOIN dbo.productos p ON p.id_producto = pd.id_producto
+                WHERE pd.id_picking_detalle = :id_picking_detalle
+                  AND pd.estado = 'LIBERADO'
+            """),
+            {"id_picking_detalle": int(id_picking_detalle)},
+        ).mappings().first()
+
+        if not tarea:
+            raise ValueError("La tarea no está liberada o ya fue procesada.")
+
+        assigned_qty = float(tarea["cantidad_asignada"] or 0)
+        if assigned_qty <= 0:
+            raise ValueError("La tarea no tiene cantidad asignada.")
+        if found_qty > assigned_qty:
+            raise ValueError("La cantidad encontrada no puede superar la cantidad asignada.")
+
+        short_qty = round(assigned_qty - found_qty, 6)
+        if short_qty <= 0:
+            # Si no hay corto, usar la ruta normal de atención.
+            return atender_tareas_picking(
+                [int(id_picking_detalle)],
+                id_usuario=int(id_usuario),
+                observacion=observacion,
+                requiere_aprobacion_admin=requiere_aprobacion_admin,
+                origen_atencion=origen_atencion,
+            )
+
+        stage_salida_id = None
+        if requiere_aprobacion_admin and found_qty > 0:
+            stage_salida_id = conn.execute(
+                text("""
+                    SELECT id_ubicacion
+                    FROM dbo.ubicaciones
+                    WHERE codigo_ubicacion = 'B1.ST.01'
+                      AND activo = 1
+                """)
+            ).scalar()
+            if not stage_salida_id:
+                raise ValueError("No existe la ubicación stage de salida B1.ST.01 activa. Ejecuta la migración 018.")
+            stage_salida_id = int(stage_salida_id)
+
+        stock = conn.execute(
+            text("""
+                SELECT cantidad_actual, ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking
+                FROM dbo.stock_ubicacion WITH (UPDLOCK, ROWLOCK)
+                WHERE id_producto = :id_producto
+                  AND id_ubicacion = :id_ubicacion
+                  AND ISNULL(lote, '') = ISNULL(:lote, '')
+            """),
+            {
+                "id_producto": int(tarea["id_producto"]),
+                "id_ubicacion": int(tarea["id_ubicacion_origen"]),
+                "lote": tarea["lote"],
+            },
+        ).mappings().first()
+
+        if not stock or float(stock["cantidad_actual"] or 0) < assigned_qty:
+            raise ValueError(f"Stock insuficiente al registrar corto parcial del SKU {tarea['sku']}.")
+
+        # Se descuenta toda la cantidad originalmente reservada: la parte encontrada
+        # sale a stage/cuenta, la parte no encontrada queda trazada como corto.
+        conn.execute(
+            text("""
+                UPDATE dbo.stock_ubicacion
+                SET cantidad_actual = cantidad_actual - :assigned_qty,
+                    cantidad_en_picking = CASE
+                        WHEN ISNULL(cantidad_en_picking, 0) >= :assigned_qty THEN ISNULL(cantidad_en_picking, 0) - :assigned_qty
+                        ELSE 0
+                    END,
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
+                WHERE id_producto = :id_producto
+                  AND id_ubicacion = :id_ubicacion
+                  AND ISNULL(lote, '') = ISNULL(:lote, '')
+            """),
+            {
+                "assigned_qty": assigned_qty,
+                "id_producto": int(tarea["id_producto"]),
+                "id_ubicacion": int(tarea["id_ubicacion_origen"]),
+                "lote": tarea["lote"],
+            },
+        )
+
+        conn.execute(
+            text("""
+                DELETE FROM dbo.stock_ubicacion
+                WHERE id_producto = :id_producto
+                  AND id_ubicacion = :id_ubicacion
+                  AND ISNULL(lote, '') = ISNULL(:lote, '')
+                  AND cantidad_actual <= 0
+                  AND ISNULL(cantidad_en_picking, 0) <= 0
+            """),
+            {
+                "id_producto": int(tarea["id_producto"]),
+                "id_ubicacion": int(tarea["id_ubicacion_origen"]),
+                "lote": tarea["lote"],
+            },
+        )
+
+        id_cuenta = int(tarea["id_cuenta"])
+        id_movimiento = None
+        qty_atendida = 0.0
+
+        if found_qty > 0:
+            id_movimiento = conn.execute(
+                text("""
+                    INSERT INTO dbo.movimientos
+                        (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
+                    OUTPUT INSERTED.id_movimiento
+                    VALUES
+                        ('SALIDA_CUENTA', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, :estado)
+                """),
+                {
+                    "id_cuenta": id_cuenta,
+                    "referencia": f"PICKING {tarea['nro_picking']}",
+                    "observacion": observacion or "Atención parcial con corto",
+                    "id_usuario": int(id_usuario),
+                    "estado": movimiento_estado,
+                },
+            ).scalar_one()
+
+            if requiere_aprobacion_admin:
+                conn.execute(
+                    text("""
+                        IF EXISTS (
+                            SELECT 1
+                            FROM dbo.stock_ubicacion WITH (UPDLOCK, ROWLOCK)
+                            WHERE id_producto = :id_producto
+                              AND id_ubicacion = :id_stage
+                              AND ISNULL(lote, '') = ISNULL(:lote, '')
+                        )
+                        BEGIN
+                            UPDATE dbo.stock_ubicacion
+                            SET cantidad_actual = cantidad_actual + :qty,
+                                fecha_actualizacion = dbo.fn_now_bogota_lima()
+                            WHERE id_producto = :id_producto
+                              AND id_ubicacion = :id_stage
+                              AND ISNULL(lote, '') = ISNULL(:lote, '')
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO dbo.stock_ubicacion
+                                (id_producto, id_ubicacion, lote, cantidad_actual, cantidad_en_picking, fecha_actualizacion)
+                            VALUES
+                                (:id_producto, :id_stage, :lote, :qty, 0, dbo.fn_now_bogota_lima())
+                        END
+                    """),
+                    {
+                        "id_producto": int(tarea["id_producto"]),
+                        "id_stage": int(stage_salida_id),
+                        "lote": tarea["lote"],
+                        "qty": found_qty,
+                    },
+                )
+
+            conn.execute(
+                text("""
+                    INSERT INTO dbo.movimiento_detalle
+                        (id_movimiento, id_producto, id_ubicacion_origen, id_ubicacion_destino, cantidad, lote, observacion, id_picking_detalle)
+                    VALUES
+                        (:id_movimiento, :id_producto, :id_ubicacion_origen, :id_ubicacion_destino, :cantidad, :lote, :observacion, :id_picking_detalle)
+                """),
+                {
+                    "id_movimiento": int(id_movimiento),
+                    "id_producto": int(tarea["id_producto"]),
+                    "id_ubicacion_origen": int(tarea["id_ubicacion_origen"]),
+                    "id_ubicacion_destino": stage_salida_id if requiere_aprobacion_admin else None,
+                    "cantidad": found_qty,
+                    "lote": tarea["lote"],
+                    "observacion": tarea.get("texto_item") or observacion,
+                    "id_picking_detalle": int(tarea["id_picking_detalle"]),
+                },
+            )
+
+            if not requiere_aprobacion_admin:
+                conn.execute(
+                    text("""
+                        IF EXISTS (SELECT 1 FROM dbo.stock_cuenta WHERE id_cuenta = :id_cuenta AND id_producto = :id_producto)
+                        BEGIN
+                            UPDATE dbo.stock_cuenta
+                            SET cantidad_entregada = cantidad_entregada + :qty,
+                                fecha_actualizacion = dbo.fn_now_bogota_lima()
+                            WHERE id_cuenta = :id_cuenta
+                              AND id_producto = :id_producto
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO dbo.stock_cuenta (id_cuenta, id_producto, cantidad_entregada, cantidad_devuelta)
+                            VALUES (:id_cuenta, :id_producto, :qty, 0)
+                        END
+                    """),
+                    {"id_cuenta": id_cuenta, "id_producto": int(tarea["id_producto"]), "qty": found_qty},
+                )
+
+            conn.execute(
+                text("""
+                    UPDATE dbo.picking_detalle
+                    SET estado = 'COMPLETADO',
+                        cantidad_solicitada = :found_qty,
+                        cantidad_asignada = :found_qty,
+                        cantidad_atendida = :found_qty,
+                        metodo_confirmacion = 'VOZ_CORTO',
+                        confirmado_por_voz = CASE WHEN COL_LENGTH('dbo.picking_detalle', 'confirmado_por_voz') IS NOT NULL THEN 1 ELSE confirmado_por_voz END,
+                        texto_confirmacion_voz = :transcript,
+                        confianza_voz = :confidence,
+                        cantidad_reportada_voz = :found_qty,
+                        fecha_confirmacion_voz = dbo.fn_now_bogota_lima(),
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                    WHERE id_picking_detalle = :id_picking_detalle
+                """),
+                {
+                    "id_picking_detalle": int(tarea["id_picking_detalle"]),
+                    "found_qty": found_qty,
+                    "transcript": transcript,
+                    "confidence": confidence,
+                },
+            )
+            qty_atendida = found_qty
+        else:
+            conn.execute(
+                text("""
+                    UPDATE dbo.picking_detalle
+                    SET estado = 'CORTO',
+                        cantidad_asignada = 0,
+                        cantidad_atendida = 0,
+                        metodo_confirmacion = 'VOZ_CORTO',
+                        texto_confirmacion_voz = :transcript,
+                        confianza_voz = :confidence,
+                        cantidad_reportada_voz = 0,
+                        fecha_confirmacion_voz = dbo.fn_now_bogota_lima(),
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                    WHERE id_picking_detalle = :id_picking_detalle
+                """),
+                {
+                    "id_picking_detalle": int(tarea["id_picking_detalle"]),
+                    "transcript": transcript,
+                    "confidence": confidence,
+                },
+            )
+
+        if short_qty > 0 and found_qty > 0:
+            _insert_picking_detalle(
+                conn,
+                int(tarea["id_picking"]),
+                tarea,
+                None,
+                tarea["lote"],
+                short_qty,
+                0,
+                "CORTO",
+                999999,
+            )
+
+        # Trazabilidad del faltante como ajuste operativo para evitar stock fantasma.
+        if short_qty > 0:
+            try:
+                id_mov_ajuste = conn.execute(
+                    text("""
+                        INSERT INTO dbo.movimientos
+                            (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
+                        OUTPUT INSERTED.id_movimiento
+                        VALUES
+                            ('SALIDA_AJUSTE', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
+                    """),
+                    {
+                        "id_cuenta": id_cuenta,
+                        "referencia": f"CORTO PICKING {tarea['nro_picking']}",
+                        "observacion": f"Corto operativo. Asignado {assigned_qty}, encontrado {found_qty}. {observacion or ''}",
+                        "id_usuario": int(id_usuario),
+                    },
+                ).scalar_one()
+                conn.execute(
+                    text("""
+                        INSERT INTO dbo.movimiento_detalle
+                            (id_movimiento, id_producto, id_ubicacion_origen, id_ubicacion_destino, cantidad, lote, observacion, id_picking_detalle)
+                        VALUES
+                            (:id_movimiento, :id_producto, :id_ubicacion_origen, NULL, :cantidad, :lote, :observacion, :id_picking_detalle)
+                    """),
+                    {
+                        "id_movimiento": int(id_mov_ajuste),
+                        "id_producto": int(tarea["id_producto"]),
+                        "id_ubicacion_origen": int(tarea["id_ubicacion_origen"]),
+                        "cantidad": short_qty,
+                        "lote": tarea["lote"],
+                        "observacion": "Corto detectado durante picking RF/voz",
+                        "id_picking_detalle": int(tarea["id_picking_detalle"]),
+                    },
+                )
+            except Exception:
+                # Si la instancia aún no permite SALIDA_AJUSTE, no bloquear el picking.
+                pass
+
+        conn.execute(
+            text("""
+                UPDATE dbo.pedido_detalle
+                SET cantidad_asignada = CASE
+                        WHEN cantidad_asignada >= :short_qty THEN cantidad_asignada - :short_qty
+                        ELSE 0
+                    END,
+                    cantidad_atendida = cantidad_atendida + :found_qty,
+                    estado = CASE
+                        WHEN :short_qty > 0 THEN 'CORTO'
+                        WHEN cantidad_pedida <= cantidad_atendida + cantidad_cancelada + :found_qty THEN 'COMPLETADO'
+                        ELSE estado
+                    END,
+                    fecha_actualizacion = dbo.fn_now_bogota_lima()
+                WHERE id_pedido_detalle = :id_pedido_detalle
+            """),
+            {
+                "short_qty": short_qty,
+                "found_qty": found_qty,
+                "id_pedido_detalle": int(tarea["id_pedido_detalle"]),
+            },
+        )
+
+        if requiere_aprobacion_admin and found_qty > 0:
+            conn.execute(
+                text("""
+                    UPDATE dbo.picking_header
+                    SET origen_atencion = :origen_atencion,
+                        requiere_aprobacion_admin = 1,
+                        estado_aprobacion_admin = ISNULL(estado_aprobacion_admin, 'PENDIENTE'),
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                    WHERE id_picking = :id_picking
+                """),
+                {
+                    "id_picking": int(tarea["id_picking"]),
+                    "origen_atencion": origen_atencion,
+                },
+            )
+
+        estado_final = _recalcular_picking_estado(conn, int(tarea["id_picking"]))
+
+    return {
+        "tareas_atendidas": 1 if found_qty > 0 else 0,
+        "qty_atendida": qty_atendida,
+        "qty_corto": short_qty,
+        "estado_picking": estado_final,
+    }
+
+
 def atender_tareas_picking(
     ids_tareas: list[int],
     id_usuario: int,
