@@ -178,12 +178,11 @@ def build_voice_instruction(
     short_pending: bool = False,
     short_qty: float | None = None,
 ) -> str:
-    """Construye instrucciones conversacionales por paso.
+    """Construye instrucciones operativas por paso.
 
-    Pasos soportados:
-    - ubicacion: el operario debe responder "estoy aquí".
-    - material: el operario confirma el código/material con ok/correcto/conforme.
-    - cantidad: el operario confirma cantidad o reporta corto.
+    La instrucción de voz debe ser directa y productiva. No se incluyen frases
+    como "diga ok" o "puede decir", porque las ayudas de comandos se muestran
+    visualmente en pantalla. El audio solo debe guiar la tarea.
     """
     nro_picking = _clean_text(tarea.get("nro_picking")) or _clean_text(tarea.get("id_picking"))
     ubicacion = speak_location(tarea.get("codigo_ubicacion"))
@@ -194,12 +193,12 @@ def build_voice_instruction(
     zone = zone_label(tarea)
 
     if cancel_confirm:
-        return f"Vuelva a decir cancelar para cancelar el picking {nro_picking}. Si desea continuar, diga no o continuar."
+        return f"Confirmación de cancelación. Vuelva a decir cancelar para cancelar el picking {nro_picking}."
 
     if short_pending:
         if short_qty is None:
-            return "Indica la cantidad encontrada. Puedes decir un número, o cancelar picking."
-        return f"Confirmas el corto por {speak_qty(short_qty)} {unidad}. Diga confirmar corto, o indique la cantidad correcta."
+            return "Indica la cantidad encontrada."
+        return f"Confirmas el corto por {speak_qty(short_qty)} {unidad}."
 
     intro: list[str] = []
     if greeting:
@@ -212,22 +211,18 @@ def build_voice_instruction(
         if include_zone:
             intro.append(f"Diríjase a la zona {speak_description(zone)}.")
         intro.append(f"Ubicación {ubicacion}.")
-        intro.append("Cuando llegue diga estoy aquí. Si necesita repetir diga repítelo.")
         return " ".join(intro)
 
     if step == "material":
         intro.append(f"Código {sku}.")
         intro.append(f"Descripción {producto}.")
-        intro.append("Diga ok, correcto o conforme para continuar. También puede decir repite código.")
         return " ".join(intro)
 
     if step == "cantidad":
         intro.append(f"Extrae {qty} {unidad}.")
-        intro.append("Diga ok, correcto o conforme para confirmar. Si no encuentra toda la mercadería, diga tengo corto.")
         return " ".join(intro)
 
     return f"Tarea {current} de {total}. Ubicación {ubicacion}. Código {sku}. Extrae {qty} {unidad}."
-
 
 def build_task_prompt(tarea: dict, current: int, total: int) -> str:
     """Compatibilidad con versiones anteriores."""
@@ -244,7 +239,7 @@ def build_task_prompt(tarea: dict, current: int, total: int) -> str:
 def build_audit_prompt(auditoria_rows: list[dict] | None = None) -> str:
     rows = auditoria_rows or []
     if not rows:
-        return "Auditoría de picking sin líneas. Diga confirmar auditoría para finalizar."
+        return "Todas las tareas fueron atendidas. Revisa la auditoría en pantalla."
     intro = ["Todas las tareas fueron atendidas. Resumen de auditoría."]
     for row in rows[:12]:
         sku = speak_sku(row.get("sku") or "")
@@ -254,9 +249,8 @@ def build_audit_prompt(auditoria_rows: list[dict] | None = None) -> str:
         intro.append(f"Código {sku}. {nombre}. Cantidad {qty} {unidad}.")
     if len(rows) > 12:
         intro.append(f"Hay {len(rows) - 12} líneas adicionales en pantalla.")
-    intro.append("Diga confirmar auditoría para finalizar o repetir resumen.")
+    intro.append("Revisa el resumen en pantalla.")
     return " ".join(intro)
-
 
 def render_voice_assistant(
     instruction: str,
@@ -289,7 +283,7 @@ def render_voice_assistant(
     result = _rf_voice_assistant(
         instruction=instruction,
         lang="es-PE",
-        rate=1.28,
+        rate=1.42,
         pitch=1.0,
         volume=1.0,
         auto_play=bool(auto_play_nonce),
