@@ -1662,4 +1662,3 @@ def render_rf_product_card(product: dict | None, searched_code: str) -> None:
         """,
         unsafe_allow_html=True,
     )
-
