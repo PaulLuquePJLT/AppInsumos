@@ -67,7 +67,7 @@ st.set_page_config(
 
 
 ALLOWED_ROLES = {"operario", "administrador", "admin"}
-RF_IDLE_TIMEOUT_SECONDS = 180
+RF_IDLE_TIMEOUT_SECONDS = 300
 
 
 def _normalize_role(value: str | None) -> str:
@@ -172,7 +172,7 @@ def _handle_timeout_query_param() -> None:
     try:
         if st.query_params.get("wms_timeout") or st.query_params.get("rf_timeout"):
             _clear_rf_session_state()
-            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 5 minutos de inactividad."
             st.query_params.clear()
             st.rerun()
     except Exception:
@@ -189,7 +189,7 @@ def _enforce_rf_idle_timeout() -> bool:
 
     if now - last_activity > RF_IDLE_TIMEOUT_SECONDS:
         _clear_rf_session_state()
-        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 5 minutos de inactividad."
         return True
 
     st.session_state.rf_last_activity_ts = now
@@ -658,6 +658,7 @@ def _reset_voice_state(clear_last_zone: bool = False) -> None:
         "rf_voice_cancel_confirm",
         "rf_voice_presence_resume",
         "rf_voice_waiting_presence",
+        "rf_voice_unrecognized",
     ]:
         st.session_state.pop(key, None)
     if clear_last_zone:
@@ -866,6 +867,8 @@ def _current_voice_key(tarea: dict, step: str) -> str:
         suffix += f"_short_{st.session_state.get('rf_voice_short_qty')}"
     if st.session_state.get("rf_voice_presence_resume"):
         suffix += "_resume"
+    if st.session_state.get("rf_voice_unrecognized"):
+        suffix += "_unrecognized"
     return f"rf_voice_task_{int(tarea['id_picking_detalle'])}_{step}{suffix}"
 
 
@@ -886,14 +889,23 @@ def _handle_voice_command(event: dict, tarea: dict, current: int, total: int, do
         confianza=confidence,
     )
 
+    if command == "NO_RECONOCIDO":
+        st.session_state.rf_voice_unrecognized = True
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    # Si ya hubo un comando válido, limpiar mensaje anterior de no reconocido.
+    st.session_state.rf_voice_unrecognized = False
+
     if command == "NO_INPUT":
-        # El componente se encargará de preguntar "¿Estás ahí?" cada 30 segundos.
+        # El componente se encargará de preguntar "¿Estás ahí?" cada 10 segundos.
         st.session_state.rf_voice_waiting_presence = True
         return
 
     if command == "PRESENCIA":
         st.session_state.rf_voice_waiting_presence = False
         st.session_state.rf_voice_presence_resume = True
+        st.session_state.rf_voice_unrecognized = False
         reset_voice_autoplay(voice_key)
         st.rerun()
 
@@ -939,15 +951,22 @@ def _handle_voice_command(event: dict, tarea: dict, current: int, total: int, do
             st.rerun()
         if command == "CONFIRMAR_CORTO":
             qty = st.session_state.get("rf_voice_short_qty")
+            if qty is None:
+                # Todavía no hay cantidad encontrada; volver a pedirla.
+                st.session_state.rf_voice_short_pending = True
+                reset_voice_autoplay(voice_key)
+                st.rerun()
             register_voice_short_incident(
                 id_usuario=current_user_id(),
                 id_picking=int(tarea["id_picking"]),
                 id_picking_detalle=int(tarea["id_picking_detalle"]),
-                cantidad_reportada=float(qty) if qty is not None else None,
+                cantidad_reportada=float(qty),
                 transcript=st.session_state.get("rf_voice_short_transcript") or transcript,
                 confidence=confidence,
             )
             _reset_voice_state(clear_last_zone=False)
+            # Si encontró algo, se considera una tarea procesada. Si encontró cero,
+            # la tarea queda como corto y la lista avanza al siguiente pendiente.
             st.session_state.rf_picking_done_session = done + 1
             rf_clear_master_cache()
             st.rerun()
@@ -1017,19 +1036,24 @@ def _render_voice_picking_tareas() -> None:
     short_pending = bool(st.session_state.get("rf_voice_short_pending"))
     short_qty = st.session_state.get("rf_voice_short_qty")
     resume = bool(st.session_state.pop("rf_voice_presence_resume", False))
+    unrecognized = bool(st.session_state.get("rf_voice_unrecognized"))
 
-    prompt = build_voice_instruction(
-        tarea,
-        current,
-        total,
-        step=step,
-        include_zone=include_zone,
-        greeting=greeting,
-        resume=resume,
-        cancel_confirm=cancel_confirm,
-        short_pending=short_pending,
-        short_qty=short_qty,
-    )
+    if unrecognized:
+        prompt = "Disculpa, no entendí."
+        greeting = False
+    else:
+        prompt = build_voice_instruction(
+            tarea,
+            current,
+            total,
+            step=step,
+            include_zone=include_zone,
+            greeting=greeting,
+            resume=resume,
+            cancel_confirm=cancel_confirm,
+            short_pending=short_pending,
+            short_qty=short_qty,
+        )
     if greeting:
         st.session_state.rf_voice_greeting_done = True
 
@@ -1050,7 +1074,7 @@ def _render_voice_picking_tareas() -> None:
         auto_play=True,
         auto_listen=True,
         keepalive=True,
-        keepalive_ms=30000,
+        keepalive_ms=10000,
         presence_mode=bool(st.session_state.get("rf_voice_waiting_presence")),
         height=92,
     )
@@ -1102,7 +1126,7 @@ def _render_picking_auditoria(*, voice: bool = False) -> None:
             auto_play=True,
             auto_listen=True,
             keepalive=True,
-            keepalive_ms=30000,
+            keepalive_ms=10000,
             height=92,
         )
         voice_event = consume_voice_event(voice_event, f"rf_voice_processed_{audit_key}")
