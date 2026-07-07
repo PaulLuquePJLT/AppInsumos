@@ -640,6 +640,13 @@ def _start_picking(id_picking: int, nro_picking: str, total_tareas: int, *, voic
 
 
 def _reset_voice_state(clear_last_zone: bool = False) -> None:
+    """Limpia estado temporal de la tarea de voz.
+
+    Importante: no se elimina rf_voice_greeting_done en cada tarea, para que
+    el saludo se reproduzca solo al iniciar la atención del picking y no en
+    cada posición. Solo se limpia cuando volvemos a la lista o iniciamos otro
+    picking completo.
+    """
     for key in [
         "rf_voice_task_key",
         "rf_voice_step",
@@ -651,14 +658,17 @@ def _reset_voice_state(clear_last_zone: bool = False) -> None:
         "rf_voice_cancel_confirm",
         "rf_voice_presence_resume",
         "rf_voice_waiting_presence",
-        "rf_voice_greeting_done",
     ]:
         st.session_state.pop(key, None)
     if clear_last_zone:
         st.session_state.pop("rf_voice_last_zone_code", None)
+        st.session_state.pop("rf_voice_greeting_done", None)
+        st.session_state.pop("rf_voice_farewell_played", None)
 
 
-def _back_to_picking_list() -> None:
+def _back_to_picking_list(farewell: str | None = None) -> None:
+    if farewell:
+        st.session_state.rf_voice_farewell_text = farewell
     for key in [
         "rf_picking_id",
         "rf_picking_nro",
@@ -697,6 +707,20 @@ def render_voice_picking() -> None:
 
 
 def _render_picking_lista(*, voice: bool = False) -> None:
+    if voice and st.session_state.get("rf_voice_farewell_text"):
+        farewell_text = str(st.session_state.get("rf_voice_farewell_text") or "Picking finalizado. Buen trabajo.")
+        st.markdown('<div class="rf-voice-note"><b>Picking finalizado</b><br>El proceso de voz quedó cerrado correctamente.</div>', unsafe_allow_html=True)
+        render_voice_assistant(
+            farewell_text,
+            key="rf_voice_farewell",
+            auto_play=True,
+            auto_listen=False,
+            keepalive=False,
+            height=54,
+        )
+        # Mantener el mensaje solo durante el primer render posterior al cierre.
+        st.session_state.pop("rf_voice_farewell_text", None)
+
     data = rf_get_pickings_pendientes()
     if data.empty:
         st.info("No hay pickings pendientes de atención.")
@@ -1013,7 +1037,7 @@ def _render_voice_picking_tareas() -> None:
     st.markdown(
         f"""
         <div class="rf-voice-note">
-            <b>Puedes decir</b><br>{_voice_help(step, short_pending=short_pending, short_qty=short_qty, cancel_confirm=cancel_confirm)}
+            <b>Comandos disponibles</b><br>{_voice_help(step, short_pending=short_pending, short_qty=short_qty, cancel_confirm=cancel_confirm)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1094,7 +1118,7 @@ def _render_picking_auditoria(*, voice: bool = False) -> None:
                 confianza=voice_event.get("confidence"),
             )
             if command == "CONFIRMAR_AUDITORIA":
-                _back_to_picking_list()
+                _back_to_picking_list(farewell=f"Picking {nro} finalizado. Buen trabajo.")
             elif command == "REPETIR":
                 reset_voice_autoplay(audit_key)
                 st.rerun()
