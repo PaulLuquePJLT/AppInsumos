@@ -106,25 +106,38 @@ def speak_sku(value: Any) -> str:
             parts.append("pausa")
     return ", ".join(p for p in parts if p.strip())
 
+def _strip_leading_zeroes_in_segment(segment: str) -> str:
+    """Quita ceros a la izquierda de cada grupo numérico dentro de una ubicación.
+
+    Ejemplo: B4.SD03.C06.002.06 -> B4 SD3 C6 2 6.
+    Esto evita que la voz diga cero cero dos o interprete 03.02 como hora.
+    """
+    def _replace(match: re.Match) -> str:
+        raw = match.group(0)
+        stripped = raw.lstrip("0")
+        return stripped or "0"
+
+    return re.sub(r"\d+", _replace, segment)
+
+
 def speak_location(value: Any) -> str:
-    """Vocaliza ubicaciones como B1.ARM.03.02 sin que Chrome las lea como horas."""
+    """Vocaliza ubicaciones evitando horas y omitiendo ceros a la izquierda.
+
+    Para ubicaciones operativas se prefiere una lectura compacta, no deletrear
+    letras en español. Ejemplo: B4.SD03.C06.002.06 -> B4, SD3, C6, 2, 6.
+    """
     text = _clean_text(value).upper()
     if not text:
         return "ubicación no informada"
-    segments = re.split(r"[.\-_/\s]+", text)
-    spoken_segments: list[str] = []
+
+    segments = re.split(r"[.\-_\/\s]+", text)
+    cleaned: list[str] = []
     for seg in segments:
-        if not seg:
-            continue
-        chars: list[str] = []
-        for ch in seg:
-            if ch.isdigit():
-                chars.append(_DIGIT_WORDS.get(ch, ch))
-            elif ch.isalpha() or ch == "Ñ":
-                chars.append(_LETTER_WORDS.get(ch, ch))
-        if chars:
-            spoken_segments.append(", ".join(chars))
-    return ". ".join(spoken_segments) if spoken_segments else text
+        seg = _strip_leading_zeroes_in_segment(seg.strip())
+        if seg:
+            cleaned.append(seg)
+
+    return ". ".join(cleaned) if cleaned else text
 
 def speak_description(value: Any) -> str:
     """Vocaliza descripciones como frase, no como siglas.
@@ -178,6 +191,7 @@ def build_voice_instruction(
     cancel_confirm: bool = False,
     short_pending: bool = False,
     short_qty: float | None = None,
+    same_location: bool = False,
 ) -> str:
     """Construye instrucciones operativas por paso.
 
@@ -215,6 +229,8 @@ def build_voice_instruction(
         return " ".join(intro)
 
     if step == "material":
+        if same_location:
+            intro.append(f"Tarea {current} de {total}. En esta misma ubicación.")
         intro.append(f"Código {sku}.")
         intro.append(f"Descripción {producto}.")
         return " ".join(intro)
@@ -238,20 +254,13 @@ def build_task_prompt(tarea: dict, current: int, total: int) -> str:
 
 
 def build_audit_prompt(auditoria_rows: list[dict] | None = None) -> str:
-    rows = auditoria_rows or []
-    if not rows:
-        return "Todas las tareas fueron atendidas. Revisa la auditoría en pantalla."
-    intro = ["Todas las tareas fueron atendidas. Resumen de auditoría."]
-    for row in rows[:12]:
-        sku = speak_sku(row.get("sku") or "")
-        nombre = speak_description(row.get("nombre_producto") or "")
-        qty = speak_qty(row.get("cantidad_atendida") or 0)
-        unidad = speak_unit(row.get("codigo_unidad"), row.get("nombre_unidad"))
-        intro.append(f"Código {sku}. {nombre}. Cantidad {qty} {unidad}.")
-    if len(rows) > 12:
-        intro.append(f"Hay {len(rows) - 12} líneas adicionales en pantalla.")
-    intro.append("Revisa el resumen en pantalla.")
-    return " ".join(intro)
+    """Mensaje final de auditoría.
+
+    En operación no se requiere leer todo el detalle de auditoría por audio.
+    El resumen queda visible en pantalla y el audio solo cierra el flujo.
+    """
+    return "Tareas completadas, verifique el resumen de auditoría. Muchas gracias."
+
 
 def render_voice_assistant(
     instruction: str,
@@ -259,10 +268,10 @@ def render_voice_assistant(
     key: str,
     auto_play: bool = False,
     auto_listen: bool = True,
-    listen_timeout_ms: int = 7000,
+    listen_timeout_ms: int = 0,
     height: int = 92,
     keepalive: bool = True,
-    keepalive_ms: int = 30000,
+    keepalive_ms: int = 10000,
     presence_mode: bool = False,
 ) -> dict | None:
     """Renderiza el asistente de voz conversacional.
