@@ -81,6 +81,28 @@ function setComponentValue(value) { sendMessage('streamlit:setComponentValue', {
 function setStatus(text, cls='') { statusEl.innerHTML = text; statusEl.className = 'voice-status ' + cls; }
 function setTranscript(text) { transcriptEl.textContent = text || ''; }
 function clearKeepalive() { if (keepaliveTimer) { clearTimeout(keepaliveTimer); keepaliveTimer = null; } }
+function playListenCue(callback) {
+  const done = () => { if (typeof callback === 'function') callback(); };
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) { done(); return; }
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = Number(args.cue_frequency || 880);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(Number(args.cue_volume || 0.08), ctx.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.14);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
+    setTimeout(() => { try { ctx.close(); } catch(e) {} done(); }, 175);
+  } catch(e) {
+    done();
+  }
+}
 
 function normalize(text) {
   return String(text || '')
@@ -169,10 +191,13 @@ function speakText(text, afterListen=false, presence=false) {
   utter.onstart = () => { speaking = true; setStatus('Hablando...'); };
   utter.onend = () => {
     speaking = false;
-    setStatus(afterListen ? 'Escuchando...' : 'Listo');
+    setStatus(afterListen ? 'Preparando escucha...' : 'Listo');
     setComponentValue({ event:'played', ts: Date.now(), task_key: args.task_key || '' });
-    if (afterListen) setTimeout(() => startListening(presence), Number(args.listen_delay_ms || 260));
-    else scheduleKeepalive();
+    if (afterListen) {
+      setTimeout(() => playListenCue(() => startListening(presence)), Number(args.listen_delay_ms || 160));
+    } else {
+      scheduleKeepalive();
+    }
   };
   utter.onerror = () => { speaking = false; setStatus('Error de audio', 'err'); scheduleKeepalive(); };
   window.speechSynthesis.speak(utter);
@@ -204,10 +229,27 @@ function startListening(presence=false) {
   hadResult = false;
   setStatus('<span class="pulse"></span>Escuchando...');
   setTranscript(presence ? 'Responde para continuar.' : 'Escuchando...');
-  const timeoutMs = Number(args.listen_timeout_ms || 7000);
-  const timeout = setTimeout(() => { try { rec.stop(); } catch(e) {} }, timeoutMs);
+
+  // Si listen_timeout_ms es 0 o menor, no se corta la escucha por timeout.
+  // El navegador puede finalizar reconocimiento por silencio; en ese caso se reinicia.
+  const timeoutMs = Number(args.listen_timeout_ms || 0);
+  let timeout = null;
+  if (timeoutMs > 0) {
+    timeout = setTimeout(() => { try { rec.stop(); } catch(e) {} }, timeoutMs);
+  }
+
+  // Preguntar ¿estás ahí? cada cierto tiempo si no hubo respuesta.
+  if (args.keepalive) {
+    keepaliveTimer = setTimeout(() => {
+      try { rec.stop(); } catch(e) {}
+      listening = false;
+      speakText(String(args.keepalive_prompt || '¿Estás ahí?'), true, true);
+    }, Number(args.keepalive_ms || 10000));
+  }
+
   rec.onresult = (event) => {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
+    clearKeepalive();
     hadResult = true;
     listening = false;
     const result = event.results && event.results[0] ? event.results[0] : null;
@@ -227,23 +269,28 @@ function startListening(presence=false) {
     setComponentValue({
       event:'command', transcript, command, quantity: qty, confidence, ts: now, task_key: args.task_key || ''
     });
-    scheduleKeepalive();
   };
   rec.onerror = (e) => {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
+    const error = e.error || '';
     listening = false;
-    setStatus('Micrófono: ' + (e.error || 'error'), 'err');
-    setComponentValue({ event:'recognition_error', error:e.error || '', ts: Date.now(), task_key: args.task_key || '' });
-    scheduleKeepalive();
+    // En Chrome, no-speech/audio-capture/aborted pueden ocurrir por silencio o por reinicio.
+    // Mantener el flujo vivo hasta recibir una respuesta o hasta que el usuario cancele.
+    if (['no-speech', 'aborted'].includes(error)) {
+      if (!hadResult) setTimeout(() => startListening(presence), 250);
+      return;
+    }
+    setStatus('Micrófono: ' + error, 'err');
+    setComponentValue({ event:'recognition_error', error, ts: Date.now(), task_key: args.task_key || '' });
   };
   rec.onend = () => {
-    clearTimeout(timeout);
-    if (listening && !hadResult) {
-      setStatus('Sin comando detectado');
-      setTranscript('No se detectó respuesta.');
-      scheduleKeepalive();
-    }
+    if (timeout) clearTimeout(timeout);
+    const shouldRestart = listening && !hadResult;
     listening = false;
+    if (shouldRestart) {
+      setStatus('<span class="pulse"></span>Escuchando...');
+      setTimeout(() => startListening(presence), 250);
+    }
   };
   try { rec.start(); } catch(e) { setStatus('No se pudo escuchar', 'err'); scheduleKeepalive(); }
 }
@@ -252,6 +299,8 @@ function scheduleKeepalive() {
   if (!args.keepalive) return;
   keepaliveTimer = setTimeout(() => {
     const prompt = String(args.keepalive_prompt || '¿Estás ahí?');
+    try { if (recognition) recognition.stop(); } catch(e) {}
+    listening = false;
     speakText(prompt, true, true);
   }, Number(args.keepalive_ms || 10000));
 }
