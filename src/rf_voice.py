@@ -296,6 +296,8 @@ def render_voice_assistant(
         rate=1.42,
         pitch=1.0,
         volume=1.0,
+        cue_volume=0.34,
+        cue_frequency=1040,
         auto_play=bool(auto_play_nonce),
         auto_play_nonce=auto_play_nonce,
         auto_listen=auto_listen,
