@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.queries import get_movimientos
+from src.theme import download_report_xlsx_button
 
 st.title("Movimientos")
 st.caption("Por defecto se muestran solo los movimientos del día. Usa los filtros y presiona Consultar.")
@@ -76,14 +77,27 @@ movimientos["cantidad"] = pd.to_numeric(movimientos.get("cantidad", 0), errors="
 movimientos["importe_soles"] = pd.to_numeric(movimientos.get("importe_soles", 0), errors="coerce").fillna(0.0)
 movimientos["tipo_movimiento"] = movimientos["tipo_movimiento"].astype(str).str.upper()
 
+# Mostrar las salidas como cantidades negativas. Las transferencias se mantienen
+# positivas y se resaltan en amarillo para distinguirlas de ingresos/salidas.
 salida_mask = movimientos["tipo_movimiento"].str.startswith("SALIDA")
 movimientos.loc[salida_mask, "cantidad"] = -movimientos.loc[salida_mask, "cantidad"].abs()
 movimientos.loc[salida_mask, "importe_soles"] = -movimientos.loc[salida_mask, "importe_soles"].abs()
 
+# Redondeo operativo solicitado: una cifra decimal en cantidad.
+movimientos["cantidad"] = movimientos["cantidad"].round(1)
+
 m1, m2, m3 = st.columns(3)
 m1.metric("Movimientos", movimientos["id_movimiento"].nunique() if "id_movimiento" in movimientos.columns else len(movimientos))
-m2.metric("Cantidad neta", f"{movimientos['cantidad'].sum():,.2f}")
+m2.metric("Cantidad neta", f"{movimientos['cantidad'].sum():,.1f}")
 m3.metric("Monto neto S/.", f"S/ {movimientos['importe_soles'].sum():,.2f}")
+
+# Botón explícito para evitar que el exportador automático no detecte Styler.
+download_report_xlsx_button(
+    movimientos,
+    table_name="Movimientos",
+    label="Descargar XLSX",
+    key="download_movimientos_xlsx",
+)
 
 
 def _color_cantidad(row):
@@ -100,5 +114,8 @@ def _color_cantidad(row):
         styles[idx] = "background-color: #FFF4C7; color: #713F12; font-weight: 700;"
     return styles
 
-styled = movimientos.style.apply(_color_cantidad, axis=1)
+styled = movimientos.style.apply(_color_cantidad, axis=1).format({
+    "cantidad": "{:.1f}",
+    "importe_soles": "{:,.2f}",
+})
 st.dataframe(styled, use_container_width=True, hide_index=True)
