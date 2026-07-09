@@ -126,6 +126,7 @@ def get_stock_general(sku: str = "", solo_con_stock: bool = True, max_rows: int 
             (
                 ISNULL(cantidad_total, 0) > 0
                 OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_en_ingreso, 0) > 0
                 OR ISNULL(cantidad_disponible, 0) > 0
             )
         """)
@@ -149,15 +150,16 @@ def get_stock_general(sku: str = "", solo_con_stock: bool = True, max_rows: int 
             ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_total,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_en_ingreso, 0) AS cantidad_en_ingreso,
             ISNULL(cantidad_disponible, cantidad_total) AS cantidad_disponible,
             ISNULL(valor_stock_total, cantidad_total * ISNULL(precio_unitario, 0)) AS valor_stock_total,
             ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_en_ingreso, ISNULL(cantidad_en_ingreso, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_ingreso,
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_total) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible
         FROM dbo.vw_stock_general
         {where_sql}
         ORDER BY nombre_producto
     """, params)
-
 
 def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", solo_con_stock: bool = True, max_rows: int | None = None):
     filters = []
@@ -168,6 +170,7 @@ def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", 
             (
                 ISNULL(cantidad_actual, 0) > 0
                 OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_en_ingreso, 0) > 0
                 OR ISNULL(cantidad_disponible, 0) > 0
             )
         """)
@@ -206,16 +209,17 @@ def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", 
             ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_actual,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_en_ingreso, 0) AS cantidad_en_ingreso,
             ISNULL(cantidad_disponible, cantidad_actual) AS cantidad_disponible,
             ISNULL(valor_stock_actual, cantidad_actual * ISNULL(precio_unitario, 0)) AS valor_stock_actual,
             ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_en_ingreso, ISNULL(cantidad_en_ingreso, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_ingreso,
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible,
             fecha_actualizacion
         FROM dbo.vw_stock_por_ubicacion
         {where_sql}
         ORDER BY nombre_producto, secuencia, codigo_ubicacion
     """, params)
-
 
 def aplicar_vencimientos_stock_cuenta() -> None:
     """Aplica descuentos de stock en cuenta por vida util vencida.
@@ -1964,14 +1968,13 @@ def get_dashboard_kpi_counts():
 # ---------------------------------------------------------------------------
 
 def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
-    """Stock físico disponible para salida por ajuste.
+    """Stock físico para salida por ajuste.
 
-    `cuenta` se acepta por compatibilidad con la página, pero no aplica al almacén físico.
+    Para ubicaciones stage de salida/recepción, la cantidad aparece clasificada
+    como picking/ingreso y no como disponible. En ajuste administrativo se
+    permite quitar stock desde esas ubicaciones usando cantidad_actual.
     """
-    filters = [
-        "ISNULL(cantidad_actual, 0) > 0",
-        "ISNULL(cantidad_disponible, cantidad_actual) > 0",
-    ]
+    filters = ["ISNULL(cantidad_actual, 0) > 0"]
     params: dict = {}
 
     if sku:
@@ -1985,7 +1988,7 @@ def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "
     return read_dataframe(f"""
         SELECT
             CAST(0 AS bit) AS seleccionar,
-            CAST(0 AS decimal(18,2)) AS cantidad_ajuste,
+            CAST(0 AS decimal(18,3)) AS cantidad_ajuste,
             id_producto,
             sku,
             nombre_producto,
@@ -1995,16 +1998,23 @@ def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "
             codigo_ubicacion,
             tipo_ubicacion,
             lote,
-            CAST(ISNULL(cantidad_actual, 0) AS decimal(18,2)) AS cantidad_actual,
-            CAST(ISNULL(cantidad_en_picking, 0) AS decimal(18,2)) AS cantidad_en_picking,
-            CAST(ISNULL(cantidad_disponible, cantidad_actual) AS decimal(18,2)) AS cantidad_disponible,
+            CAST(ISNULL(cantidad_actual, 0) AS decimal(18,3)) AS cantidad_actual,
+            CAST(ISNULL(cantidad_en_picking, 0) AS decimal(18,3)) AS cantidad_en_picking,
+            CAST(ISNULL(cantidad_en_ingreso, 0) AS decimal(18,3)) AS cantidad_en_ingreso,
+            CAST(ISNULL(cantidad_disponible, 0) AS decimal(18,3)) AS cantidad_disponible,
+            CAST(
+                CASE
+                    WHEN codigo_ubicacion LIKE 'B1.ST.%' THEN ISNULL(cantidad_actual, 0)
+                    WHEN codigo_ubicacion LIKE 'B1.RE.%' THEN ISNULL(cantidad_actual, 0)
+                    ELSE ISNULL(cantidad_disponible, 0)
+                END AS decimal(18,3)
+            ) AS cantidad_max_ajuste,
             CAST(ISNULL(precio_unitario, 0) AS decimal(18,4)) AS precio_unitario,
-            CAST(ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS decimal(18,2)) AS valor_stock_disponible
+            CAST(ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, 0) * ISNULL(precio_unitario, 0)) AS decimal(18,2)) AS valor_stock_disponible
         FROM dbo.vw_stock_por_ubicacion
         WHERE {where_sql}
         ORDER BY codigo_ubicacion, sku, lote
     """, params)
-
 
 def get_stock_ajuste_cuentas(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
     """Stock neto por cuenta disponible para salida por ajuste."""
