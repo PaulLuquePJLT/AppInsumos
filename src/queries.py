@@ -1771,12 +1771,13 @@ def get_tareas_picking_pendientes():
 
 
 def get_pickings_rf_pendientes_aprobacion():
-    """Pickings RF con movimientos SALIDA_CUENTA pendientes de aprobación.
+    """Pickings RF pendientes de aprobación administrativa.
 
-    Importante: la visibilidad se basa en los movimientos reales en estado
-    PENDIENTE_APROBACION. Esto cubre casos donde el header quedó con estado
-    desactualizado o incluso marcado como APROBADO por una aprobación parcial
-    anterior, pero todavía existen movimientos pendientes y stock en B1.ST.01.
+    Esta consulta NO depende únicamente del estado de picking_header. La fuente
+    de verdad para mostrar una aprobación pendiente son los movimientos reales
+    SALIDA_CUENTA con estado PENDIENTE_APROBACION, porque después de gestionar
+    cortos el header puede quedar desalineado mientras todavía existe stock en
+    B1.ST.01 esperando aprobación.
     """
     return read_dataframe("""
         WITH pend_mov AS (
@@ -1785,11 +1786,26 @@ def get_pickings_rf_pendientes_aprobacion():
                 COUNT(DISTINCT m.id_movimiento) AS movimientos_pendientes,
                 CAST(SUM(ISNULL(md.cantidad, 0)) AS DECIMAL(18,2)) AS cantidad_pendiente_aprobacion
             FROM dbo.movimientos m
-            INNER JOIN dbo.movimiento_detalle md ON md.id_movimiento = m.id_movimiento
+            INNER JOIN dbo.movimiento_detalle md
+                ON md.id_movimiento = m.id_movimiento
             WHERE m.tipo_movimiento = 'SALIDA_CUENTA'
               AND m.estado = 'PENDIENTE_APROBACION'
               AND m.referencia LIKE 'PICKING %'
             GROUP BY REPLACE(m.referencia, 'PICKING ', '')
+        ),
+        detalle_agg AS (
+            SELECT
+                pd.id_picking,
+                MIN(c.codigo_cuenta) AS codigo_cuenta,
+                MIN(c.nombre_cuenta) AS nombre_cuenta,
+                CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
+                SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 ELSE 0 END) AS tareas_completadas,
+                COUNT(DISTINCT pd.id_producto) AS codigos,
+                COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones
+            FROM dbo.picking_detalle pd
+            LEFT JOIN dbo.cuentas_logisticas c
+                ON c.id_cuenta = pd.id_cuenta
+            GROUP BY pd.id_picking
         ),
         cortos AS (
             SELECT
@@ -1807,6 +1823,23 @@ def get_pickings_rf_pendientes_aprobacion():
             FROM dbo.picking_detalle
             WHERE estado = 'LIBERADO'
             GROUP BY id_picking
+        ),
+        pedidos_base AS (
+            SELECT DISTINCT
+                pp.id_picking,
+                ped.id_pedido,
+                ped.nro_pedido
+            FROM dbo.picking_pedido pp
+            INNER JOIN dbo.pedidos ped
+                ON ped.id_pedido = pp.id_pedido
+        ),
+        pedidos_agg AS (
+            SELECT
+                id_picking,
+                COUNT(DISTINCT id_pedido) AS pedidos,
+                STRING_AGG(CONVERT(NVARCHAR(MAX), nro_pedido), ', ') AS nro_pedidos
+            FROM pedidos_base
+            GROUP BY id_picking
         )
         SELECT
             CAST(0 AS BIT) AS seleccionar,
@@ -1821,43 +1854,40 @@ def get_pickings_rf_pendientes_aprobacion():
                 ELSE ISNULL(ph.estado_aprobacion_admin, 'PENDIENTE')
             END AS estado_aprobacion_admin,
             uc.usuario_login AS usuario_atencion,
-            COUNT(DISTINCT pp.id_pedido) AS pedidos,
-            STRING_AGG(CONVERT(NVARCHAR(MAX), ped.nro_pedido), ', ') AS nro_pedidos,
-            MIN(c.codigo_cuenta) AS codigo_cuenta,
-            MIN(c.nombre_cuenta) AS nombre_cuenta,
-            CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
-            COUNT(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 END) AS tareas_completadas,
-            ISNULL(MAX(co.cortos_pendientes), 0) AS cortos_pendientes,
-            ISNULL(MAX(co.cantidad_corta_pendiente), 0) AS cantidad_corta_pendiente,
-            ISNULL(MAX(lb.tareas_liberadas_pendientes), 0) AS tareas_liberadas_pendientes,
-            COUNT(DISTINCT pd.id_producto) AS codigos,
-            COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones,
-            CAST(ISNULL(MAX(pm.movimientos_pendientes), 0) AS INT) AS movimientos_pendientes_aprobacion,
-            CAST(ISNULL(MAX(pm.cantidad_pendiente_aprobacion), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_aprobacion,
-            CASE WHEN ISNULL(MAX(co.cortos_pendientes), 0) > 0
+            ISNULL(pa.pedidos, 0) AS pedidos,
+            ISNULL(pa.nro_pedidos, '') AS nro_pedidos,
+            ISNULL(da.codigo_cuenta, '') AS codigo_cuenta,
+            ISNULL(da.nombre_cuenta, '') AS nombre_cuenta,
+            ISNULL(da.cantidad_atendida, 0) AS cantidad_atendida,
+            ISNULL(da.tareas_completadas, 0) AS tareas_completadas,
+            ISNULL(co.cortos_pendientes, 0) AS cortos_pendientes,
+            ISNULL(co.cantidad_corta_pendiente, 0) AS cantidad_corta_pendiente,
+            ISNULL(lb.tareas_liberadas_pendientes, 0) AS tareas_liberadas_pendientes,
+            ISNULL(da.codigos, 0) AS codigos,
+            ISNULL(da.ubicaciones, 0) AS ubicaciones,
+            CAST(ISNULL(pm.movimientos_pendientes, 0) AS INT) AS movimientos_pendientes_aprobacion,
+            CAST(ISNULL(pm.cantidad_pendiente_aprobacion, 0) AS DECIMAL(18,2)) AS cantidad_pendiente_aprobacion,
+            CASE WHEN ISNULL(co.cortos_pendientes, 0) > 0
                  THEN CAST(1 AS BIT)
                  ELSE CAST(0 AS BIT)
             END AS tiene_cortos
         FROM dbo.picking_header ph
-        INNER JOIN pend_mov pm ON pm.nro_picking = ph.nro_picking
-        LEFT JOIN dbo.picking_detalle pd ON pd.id_picking = ph.id_picking
-        LEFT JOIN cortos co ON co.id_picking = ph.id_picking
-        LEFT JOIN liberadas lb ON lb.id_picking = ph.id_picking
-        LEFT JOIN dbo.picking_pedido pp ON pp.id_picking = ph.id_picking
-        LEFT JOIN dbo.pedidos ped ON ped.id_pedido = pp.id_pedido
-        LEFT JOIN dbo.cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
-        LEFT JOIN dbo.usuarios uc ON uc.id_usuario = ph.id_usuario_creacion
+        INNER JOIN pend_mov pm
+            ON pm.nro_picking = ph.nro_picking
+        LEFT JOIN detalle_agg da
+            ON da.id_picking = ph.id_picking
+        LEFT JOIN cortos co
+            ON co.id_picking = ph.id_picking
+        LEFT JOIN liberadas lb
+            ON lb.id_picking = ph.id_picking
+        LEFT JOIN pedidos_agg pa
+            ON pa.id_picking = ph.id_picking
+        LEFT JOIN dbo.usuarios uc
+            ON uc.id_usuario = ph.id_usuario_creacion
         WHERE ISNULL(pm.movimientos_pendientes, 0) > 0
-        GROUP BY
-            ph.id_picking,
-            ph.nro_picking,
-            ph.fecha_creacion,
-            ph.fecha_actualizacion,
-            ph.estado,
-            ph.origen_atencion,
-            ph.estado_aprobacion_admin,
-            uc.usuario_login
-        ORDER BY ph.fecha_actualizacion DESC, ph.nro_picking DESC
+        ORDER BY
+            ISNULL(ph.fecha_actualizacion, ph.fecha_creacion) DESC,
+            ph.nro_picking DESC
     """)
 
 def get_stock_para_transferencia():
