@@ -1,6 +1,6 @@
-from datetime import date
 from src.time_utils import local_today
 
+import pandas as pd
 import streamlit as st
 
 from src.queries import get_movimientos
@@ -19,6 +19,8 @@ if "mov_cuenta" not in st.session_state:
 if "mov_sku" not in st.session_state:
     st.session_state.mov_sku = ""
 
+TIPOS = ["", "ENTRADA", "SALIDA_CUENTA", "SALIDA_AJUSTE", "TRANSFERENCIA"]
+
 with st.form("form_filtros_movimientos"):
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
@@ -28,9 +30,8 @@ with st.form("form_filtros_movimientos"):
     with col3:
         tipo = st.selectbox(
             "Tipo de movimiento",
-            ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"],
-            index=["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"].index(st.session_state.mov_tipo)
-            if st.session_state.mov_tipo in ["", "ENTRADA", "SALIDA_CUENTA", "TRANSFERENCIA", "SALIDA_AJUSTE"] else 0,
+            TIPOS,
+            index=TIPOS.index(st.session_state.mov_tipo) if st.session_state.mov_tipo in TIPOS else 0,
             format_func=lambda x: "Todos" if x == "" else x,
         )
 
@@ -70,9 +71,34 @@ if movimientos.empty:
     st.info("No hay movimientos para los filtros seleccionados.")
     st.stop()
 
+movimientos = movimientos.copy()
+movimientos["cantidad"] = pd.to_numeric(movimientos.get("cantidad", 0), errors="coerce").fillna(0.0)
+movimientos["importe_soles"] = pd.to_numeric(movimientos.get("importe_soles", 0), errors="coerce").fillna(0.0)
+movimientos["tipo_movimiento"] = movimientos["tipo_movimiento"].astype(str).str.upper()
+
+salida_mask = movimientos["tipo_movimiento"].str.startswith("SALIDA")
+movimientos.loc[salida_mask, "cantidad"] = -movimientos.loc[salida_mask, "cantidad"].abs()
+movimientos.loc[salida_mask, "importe_soles"] = -movimientos.loc[salida_mask, "importe_soles"].abs()
+
 m1, m2, m3 = st.columns(3)
 m1.metric("Movimientos", movimientos["id_movimiento"].nunique() if "id_movimiento" in movimientos.columns else len(movimientos))
-m2.metric("Cantidad", f"{movimientos['cantidad'].sum():,.2f}" if "cantidad" in movimientos.columns else "0.00")
-m3.metric("Monto S/.", f"S/ {movimientos['importe_soles'].sum():,.2f}" if "importe_soles" in movimientos.columns else "S/ 0.00")
+m2.metric("Cantidad neta", f"{movimientos['cantidad'].sum():,.2f}")
+m3.metric("Monto neto S/.", f"S/ {movimientos['importe_soles'].sum():,.2f}")
 
-st.dataframe(movimientos, use_container_width=True, hide_index=True)
+
+def _color_cantidad(row):
+    styles = ["" for _ in row]
+    if "cantidad" not in row.index:
+        return styles
+    idx = list(row.index).index("cantidad")
+    tipo = str(row.get("tipo_movimiento", "")).upper()
+    if tipo.startswith("SALIDA"):
+        styles[idx] = "background-color: #FADADA; color: #7F1D1D; font-weight: 700;"
+    elif tipo == "ENTRADA":
+        styles[idx] = "background-color: #DDF7E8; color: #14532D; font-weight: 700;"
+    elif tipo == "TRANSFERENCIA":
+        styles[idx] = "background-color: #FFF4C7; color: #713F12; font-weight: 700;"
+    return styles
+
+styled = movimientos.style.apply(_color_cantidad, axis=1)
+st.dataframe(styled, use_container_width=True, hide_index=True)
