@@ -38,6 +38,7 @@ from src.rf_movimientos import (
     confirmar_tarea_picking_rf,
     confirmar_transferencia_rf,
 )
+from src.movimientos import atender_tarea_picking_con_corto_parcial
 from src.rf_queries import (
     rf_clear_master_cache,
     rf_find_product_by_code,
@@ -785,6 +786,38 @@ def _confirm_current_picking_task(tarea: dict, current: int, done: int, *, voice
             st.code(str(exc))
 
 
+
+def _render_html_card(html: str) -> None:
+    """Renderiza HTML operativo sin que Streamlit lo escape como texto."""
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def _confirm_short_current_picking_task(tarea: dict, cantidad_encontrada: float) -> None:
+    try:
+        result = atender_tarea_picking_con_corto_parcial(
+            id_picking_detalle=int(tarea["id_picking_detalle"]),
+            cantidad_encontrada=float(cantidad_encontrada),
+            id_usuario=current_user_id(),
+            observacion="Corto RF manual",
+            requiere_aprobacion_admin=True,
+            origen_atencion="RF",
+            transcript=f"Corto manual. Cantidad encontrada {cantidad_encontrada}",
+            confidence=None,
+        )
+        st.session_state.rf_picking_done_session = int(st.session_state.get("rf_picking_done_session") or 0) + (1 if float(cantidad_encontrada or 0) > 0 else 0)
+        st.session_state.pop("rf_manual_short_open", None)
+        st.session_state.pop("rf_manual_short_qty", None)
+        rf_clear_master_cache()
+        st.success(f"Corto registrado. Atendido: {float(result.get('qty_atendida', 0)):,.2f}; corto: {float(result.get('qty_corto', 0)):,.2f}.")
+        st.rerun()
+    except Exception as exc:
+        st.error("No se pudo registrar el corto.")
+        with st.expander("Detalle técnico"):
+            st.code(str(exc))
+
 def _task_card_html(tarea: dict, current: int, total: int, step_label: str = "") -> str:
     step_badge = f'<div class="rf-pill">PASO: {step_label}</div>' if step_label else ""
     return f"""
@@ -828,14 +861,39 @@ def _render_picking_tareas_manual() -> None:
 
     tarea = tareas.iloc[0].to_dict()
     current = min(done + 1, total if total > 0 else 1)
-    st.markdown(_task_card_html(tarea, current, total), unsafe_allow_html=True)
+    _render_html_card(_task_card_html(tarea, current, total))
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([1, 1, 1])
     if col1.button("Confirmar", type="primary", use_container_width=True):
         _confirm_current_picking_task(tarea, current, done)
 
-    if col2.button("Cancelar", use_container_width=True):
+    if col2.button("Registrar corto", use_container_width=True):
+        st.session_state.rf_manual_short_open = True
+        st.session_state.rf_manual_short_qty = float(tarea.get("cantidad_picking") or 0)
+
+    if col3.button("Cancelar", use_container_width=True):
         st.session_state.rf_cancel_picking_process = True
+
+    if st.session_state.get("rf_manual_short_open"):
+        with st.container(border=True):
+            st.markdown("**Registrar corto**")
+            st.caption("Indica la cantidad realmente encontrada. El sistema atenderá esa cantidad y generará un corto por la diferencia.")
+            qty_asignada = float(tarea.get("cantidad_picking") or 0)
+            qty_encontrada = st.number_input(
+                "Cantidad encontrada",
+                min_value=0.0,
+                max_value=qty_asignada,
+                step=0.001,
+                format="%.3f",
+                value=float(st.session_state.get("rf_manual_short_qty") or 0),
+                key="rf_manual_short_qty_input",
+            )
+            c_ok, c_cancel = st.columns(2)
+            if c_ok.button("Confirmar corto", type="primary", use_container_width=True):
+                _confirm_short_current_picking_task(tarea, qty_encontrada)
+            if c_cancel.button("Cerrar", use_container_width=True):
+                st.session_state.pop("rf_manual_short_open", None)
+                st.rerun()
 
     if st.session_state.get("rf_cancel_picking_process"):
         _render_cancel_picking_dialog()
@@ -1075,7 +1133,7 @@ def _render_voice_picking_tareas() -> None:
     if greeting:
         st.session_state.rf_voice_greeting_done = True
 
-    st.markdown(_task_card_html(tarea, current, total, _voice_step_label(step)), unsafe_allow_html=True)
+    _render_html_card(_task_card_html(tarea, current, total, _voice_step_label(step)))
     st.markdown(
         f"""
         <div class="rf-voice-note">
