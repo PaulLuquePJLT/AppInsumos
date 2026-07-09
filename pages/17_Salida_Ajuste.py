@@ -99,7 +99,7 @@ with tab_almacen:
             key="editor_salida_ajuste_almacen",
             column_config={
                 "seleccionar": st.column_config.CheckboxColumn("Seleccionar"),
-                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.001, format="%.3f"),
+                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.1, format="%.1f"),
             },
         )
         items, errors = _selected_rows(edited, "cantidad_max_ajuste" if "cantidad_max_ajuste" in edited.columns else "cantidad_disponible")
@@ -164,7 +164,7 @@ with tab_cuentas:
             key="editor_salida_ajuste_cuentas",
             column_config={
                 "seleccionar": st.column_config.CheckboxColumn("Seleccionar"),
-                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.001, format="%.3f"),
+                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.1, format="%.1f"),
             },
         )
         items_c, errors_c = _selected_rows(edited_c, "cantidad_neta")
