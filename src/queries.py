@@ -1750,7 +1750,11 @@ def get_tareas_picking_pendientes():
 
 
 def get_pickings_rf_pendientes_aprobacion():
-    """Pickings atendidos por RF pendientes de aprobación de administrador."""
+    """Pickings atendidos por RF pendientes de aprobación de administrador.
+
+    Incluye conteo de cortos activos para impedir aprobación si el picking aún
+    tiene diferencias pendientes de reasignar o cancelar.
+    """
     return read_dataframe("""
         SELECT
             CAST(0 AS BIT) AS seleccionar,
@@ -1768,8 +1772,14 @@ def get_pickings_rf_pendientes_aprobacion():
             MIN(c.nombre_cuenta) AS nombre_cuenta,
             CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
             COUNT(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 END) AS tareas_completadas,
+            COUNT(CASE WHEN pd.estado = 'CORTO' THEN 1 END) AS cortos_pendientes,
+            CAST(SUM(CASE WHEN pd.estado = 'CORTO' THEN ISNULL(pd.cantidad_solicitada, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_corta_pendiente,
             COUNT(DISTINCT pd.id_producto) AS codigos,
-            COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones
+            COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones,
+            CASE WHEN COUNT(CASE WHEN pd.estado = 'CORTO' THEN 1 END) > 0
+                 THEN CAST(1 AS BIT)
+                 ELSE CAST(0 AS BIT)
+            END AS tiene_cortos
         FROM dbo.picking_header ph
         INNER JOIN dbo.picking_detalle pd ON pd.id_picking = ph.id_picking
         LEFT JOIN dbo.picking_pedido pp ON pp.id_picking = ph.id_picking
@@ -1778,7 +1788,7 @@ def get_pickings_rf_pendientes_aprobacion():
         LEFT JOIN dbo.usuarios uc ON uc.id_usuario = ph.id_usuario_creacion
         WHERE ISNULL(ph.requiere_aprobacion_admin, 0) = 1
           AND ISNULL(ph.estado_aprobacion_admin, '') = 'PENDIENTE'
-          AND ph.estado IN ('COMPLETADO','COMPLETADO-CORTO')
+          AND ph.estado IN ('COMPLETADO','COMPLETADO-CORTO','COMPLETADO-PARCIAL')
         GROUP BY
             ph.id_picking,
             ph.nro_picking,
