@@ -1182,7 +1182,31 @@ def cancelar_cortos_picking(ids_cortos: list[int]) -> dict:
             )
 
         for id_picking in picking_ids:
-            _recalcular_picking_estado(conn, int(id_picking))
+            estado_final = _recalcular_picking_estado(conn, int(id_picking))
+            # Si el picking fue atendido por RF y tiene movimientos reales
+            # pendientes de aprobación, debe volver a mostrarse en
+            # Atención de Picking → Aprobación RF después de cancelar cortos.
+            conn.execute(
+                text("""
+                    UPDATE ph
+                    SET requiere_aprobacion_admin = 1,
+                        estado_aprobacion_admin = CASE
+                            WHEN ISNULL(ph.estado_aprobacion_admin, '') IN ('', 'PENDIENTE') THEN 'PENDIENTE'
+                            ELSE ph.estado_aprobacion_admin
+                        END,
+                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                    FROM dbo.picking_header ph
+                    WHERE ph.id_picking = :id_picking
+                      AND EXISTS (
+                            SELECT 1
+                            FROM dbo.movimientos m
+                            WHERE m.tipo_movimiento = 'SALIDA_CUENTA'
+                              AND m.estado = 'PENDIENTE_APROBACION'
+                              AND m.referencia = 'PICKING ' + ph.nro_picking
+                      )
+                """),
+                {"id_picking": int(id_picking)},
+            )
 
     return {"cortos_cancelados": len(cortos), "qty_cancelada": qty_cancelada}
 
@@ -1480,44 +1504,10 @@ def atender_tarea_picking_con_corto_parcial(
                 999999,
             )
 
-        # Trazabilidad del faltante como ajuste operativo para evitar stock fantasma.
-        if short_qty > 0:
-            try:
-                id_mov_ajuste = conn.execute(
-                    text("""
-                        INSERT INTO dbo.movimientos
-                            (tipo_movimiento, fecha_movimiento, id_cuenta, referencia, observacion, id_usuario, estado)
-                        OUTPUT INSERTED.id_movimiento
-                        VALUES
-                            ('SALIDA_AJUSTE', dbo.fn_now_bogota_lima(), :id_cuenta, :referencia, :observacion, :id_usuario, 'CONFIRMADO')
-                    """),
-                    {
-                        "id_cuenta": id_cuenta,
-                        "referencia": f"CORTO PICKING {tarea['nro_picking']}",
-                        "observacion": f"Corto operativo. Asignado {assigned_qty}, encontrado {found_qty}. {observacion or ''}",
-                        "id_usuario": int(id_usuario),
-                    },
-                ).scalar_one()
-                conn.execute(
-                    text("""
-                        INSERT INTO dbo.movimiento_detalle
-                            (id_movimiento, id_producto, id_ubicacion_origen, id_ubicacion_destino, cantidad, lote, observacion, id_picking_detalle)
-                        VALUES
-                            (:id_movimiento, :id_producto, :id_ubicacion_origen, NULL, :cantidad, :lote, :observacion, :id_picking_detalle)
-                    """),
-                    {
-                        "id_movimiento": int(id_mov_ajuste),
-                        "id_producto": int(tarea["id_producto"]),
-                        "id_ubicacion_origen": int(tarea["id_ubicacion_origen"]),
-                        "cantidad": short_qty,
-                        "lote": tarea["lote"],
-                        "observacion": "Corto detectado durante picking RF/voz",
-                        "id_picking_detalle": int(tarea["id_picking_detalle"]),
-                    },
-                )
-            except Exception:
-                # Si la instancia aún no permite SALIDA_AJUSTE, no bloquear el picking.
-                pass
+        # No se genera movimiento por el corto. El corto queda gestionable solo
+        # en picking_detalle/pedido_detalle para reasignación o cancelación.
+        # Los movimientos deben reflejar únicamente ingresos, salidas reales y
+        # transferencias.
 
         conn.execute(
             text("""
@@ -1824,9 +1814,20 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
 
         pickings = list(conn.execute(
             text(f"""
-                SELECT id_picking, nro_picking, estado, estado_aprobacion_admin
-                FROM picking_header WITH (UPDLOCK, ROWLOCK)
-                WHERE id_picking IN ({placeholders})
+                SELECT
+                    ph.id_picking,
+                    ph.nro_picking,
+                    ph.estado,
+                    ISNULL(ph.estado_aprobacion_admin, 'PENDIENTE') AS estado_aprobacion_admin,
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.movimientos m
+                        WHERE m.tipo_movimiento = 'SALIDA_CUENTA'
+                          AND m.estado = 'PENDIENTE_APROBACION'
+                          AND m.referencia = 'PICKING ' + ph.nro_picking
+                    ) AS movimientos_pendientes
+                FROM dbo.picking_header ph WITH (UPDLOCK, ROWLOCK)
+                WHERE ph.id_picking IN ({placeholders})
             """),
             params,
         ).mappings())
@@ -1834,13 +1835,26 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
         if not pickings:
             raise ValueError("No se encontraron pickings para aprobar.")
 
-        invalid = [p["nro_picking"] for p in pickings if str(p["estado_aprobacion_admin"] or "") != "PENDIENTE"]
+        invalid = [
+            p["nro_picking"]
+            for p in pickings
+            if str(p["estado_aprobacion_admin"] or "PENDIENTE") != "PENDIENTE"
+            and int(p.get("movimientos_pendientes") or 0) <= 0
+        ]
         if invalid:
             raise ValueError("Solo se pueden aprobar pickings RF en estado de aprobación PENDIENTE: " + ", ".join(invalid))
 
-        invalid_estado = [p["nro_picking"] for p in pickings if str(p["estado"] or "") not in {"COMPLETADO", "COMPLETADO-CORTO"}]
+        invalid_estado = [
+            p["nro_picking"]
+            for p in pickings
+            if str(p["estado"] or "") not in {"COMPLETADO", "COMPLETADO-CORTO", "COMPLETADO-PARCIAL"}
+        ]
         if invalid_estado:
             raise ValueError("Solo se pueden aprobar pickings completados por RF: " + ", ".join(invalid_estado))
+
+        sin_movimientos = [p["nro_picking"] for p in pickings if int(p.get("movimientos_pendientes") or 0) <= 0]
+        if sin_movimientos:
+            raise ValueError("El picking no tiene movimientos reales pendientes de aprobación: " + ", ".join(sin_movimientos))
 
         # Bloqueo operativo: no aprobar pickings RF si todavía tienen cortos activos.
         # El administrador debe reasignar o cancelar los cortos antes de aprobar. Esto
