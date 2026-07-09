@@ -1842,6 +1842,30 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
         if invalid_estado:
             raise ValueError("Solo se pueden aprobar pickings completados por RF: " + ", ".join(invalid_estado))
 
+        # Bloqueo operativo: no aprobar pickings RF si todavía tienen cortos activos.
+        # El administrador debe reasignar o cancelar los cortos antes de aprobar. Esto
+        # evita dejar movimientos PENDIENTE_APROBACION sin cierre y stock detenido en B1.ST.01.
+        cortos = list(conn.execute(
+            text(f"""
+                SELECT
+                    ph.nro_picking,
+                    COUNT(*) AS cortos_pendientes,
+                    CAST(SUM(ISNULL(pd.cantidad_solicitada, 0)) AS DECIMAL(18,2)) AS cantidad_corta
+                FROM picking_header ph
+                INNER JOIN picking_detalle pd ON pd.id_picking = ph.id_picking
+                WHERE ph.id_picking IN ({placeholders})
+                  AND pd.estado = 'CORTO'
+                GROUP BY ph.nro_picking
+            """),
+            params,
+        ).mappings())
+        if cortos:
+            msg = ", ".join(
+                f"{r['nro_picking']} ({int(r['cortos_pendientes'] or 0)} cortos / {float(r['cantidad_corta'] or 0):,.2f} und.)"
+                for r in cortos
+            )
+            raise ValueError("Picking con cortos, Reasigne o cancele cortos para aprobar: " + msg)
+
         nro_by_id = {int(p["id_picking"]): str(p["nro_picking"]) for p in pickings}
         qty_aprobada = 0.0
         movimientos_aprobados = 0
