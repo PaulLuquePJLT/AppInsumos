@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 from src.queries import (
@@ -11,7 +10,6 @@ from src.queries import (
     get_stock_general,
     get_stock_por_cuenta,
 )
-from src.theme import PALETTE
 from src.time_utils import local_today
 
 st.markdown('<div class="wms-page-kicker">Reportes</div>', unsafe_allow_html=True)
@@ -56,17 +54,34 @@ def _format_pen(value: float) -> str:
     return f"S/ {value:,.2f}"
 
 
-def _style_fig(fig):
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=PALETTE["navy"]),
-        margin=dict(l=16, r=16, t=52, b=22),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(gridcolor="rgba(20,37,52,.08)")
-    return fig
+def _numeric(df: pd.DataFrame, col: str) -> pd.Series:
+    if col not in df.columns:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+
+def _render_line_chart(df: pd.DataFrame, title: str) -> None:
+    st.markdown(f"### {title}")
+    if df.empty:
+        st.info("No hay datos para graficar.")
+    else:
+        st.line_chart(df, use_container_width=True)
+
+
+def _render_area_chart(df: pd.DataFrame, title: str) -> None:
+    st.markdown(f"### {title}")
+    if df.empty:
+        st.info("No hay datos para graficar.")
+    else:
+        st.area_chart(df, use_container_width=True)
+
+
+def _render_bar_chart(df: pd.DataFrame, *, title: str, x: str, y: str) -> None:
+    st.markdown(f"### {title}")
+    if df.empty:
+        st.info("No hay datos para graficar.")
+    else:
+        st.bar_chart(df, x=x, y=y, use_container_width=True)
 
 
 try:
@@ -91,7 +106,7 @@ for col in ["cantidad_neta", "valor_stock_cuenta"]:
         stock_cuentas[col] = pd.to_numeric(stock_cuentas[col], errors="coerce").fillna(0.0)
 
 # ---------------------------------------------------------------------------
-# Primera fila: filtros. Importante: estos filtros se aplican en SQL, no en Pandas.
+# Filtros. Se aplican en SQL, no en Pandas.
 # ---------------------------------------------------------------------------
 st.markdown('<div class="wms-card"><div class="wms-card-title">Filtros</div>', unsafe_allow_html=True)
 
@@ -201,7 +216,7 @@ if not mov.empty:
 else:
     mov = pd.DataFrame(columns=[
         "fecha_movimiento", "fecha", "tipo_movimiento", "cantidad", "importe_soles", "precio_unitario",
-        "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "ruc_proveedor", "sku", "nombre_producto", "codigo_unidad"
+        "codigo_cuenta", "nombre_cuenta", "razon_social_proveedor", "ruc_proveedor", "sku", "nombre_producto", "codigo_unidad",
     ])
 
 y_col = "importe_soles" if modo.startswith("Soles") else "cantidad"
@@ -209,7 +224,7 @@ y_label = "Monto S/." if y_col == "importe_soles" else "Cantidad"
 formatter = _format_pen if y_col == "importe_soles" else _format_qty
 
 # ---------------------------------------------------------------------------
-# Segunda fila: KPI cards
+# KPI cards
 # ---------------------------------------------------------------------------
 ingresos = mov[mov["tipo_movimiento"].astype(str).str.upper() == "ENTRADA"]
 salidas = mov[mov["tipo_movimiento"].astype(str).str.upper() == "SALIDA_CUENTA"]
@@ -218,8 +233,7 @@ transferencias = mov[mov["tipo_movimiento"].astype(str).str.upper() == "TRANSFER
 stock_disponible = float(stock.get("cantidad_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
 stock_valor_disponible = float(stock.get("valor_stock_disponible", pd.Series(dtype=float)).sum()) if not stock.empty else 0.0
 low_stock = stock[
-    pd.to_numeric(stock.get("cantidad_disponible", pd.Series(dtype=float)), errors="coerce").fillna(0)
-    <= pd.to_numeric(stock.get("stock_minimo", pd.Series(dtype=float)), errors="coerce").fillna(0)
+    _numeric(stock, "cantidad_disponible") <= _numeric(stock, "stock_minimo")
 ] if not stock.empty else _empty_df()
 
 k1, k2, k3, k4, k5 = st.columns(5)
@@ -245,7 +259,7 @@ if mov.empty:
 mov["fecha_str"] = pd.to_datetime(mov["fecha"], errors="coerce")
 
 # ---------------------------------------------------------------------------
-# Gráficas principales. No se muestra tabla de movimientos en Dashboard.
+# Gráficas. Se usan charts nativos de Streamlit para evitar errores del módulo PlotlyChart.
 # ---------------------------------------------------------------------------
 row1_col1, row1_col2 = st.columns([1.25, 1])
 
@@ -255,28 +269,18 @@ with row1_col1:
         .sum()
         .sort_values("fecha_str")
     )
-    fig = px.area(
-        daily,
-        x="fecha_str",
-        y=y_col,
-        color="tipo_movimiento",
-        title=f"Movimientos por día - {y_label}",
-        labels={y_col: y_label, "fecha_str": "Fecha"},
-        color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["teal"], PALETTE["gold"], PALETTE["navy"]],
+    daily_pivot = daily.pivot_table(
+        index="fecha_str",
+        columns="tipo_movimiento",
+        values=y_col,
+        aggfunc="sum",
+        fill_value=0,
     )
-    st.plotly_chart(_style_fig(fig), use_container_width=True)
+    _render_area_chart(daily_pivot, f"Movimientos por día - {y_label}")
 
 with row1_col2:
-    by_type = mov.groupby("tipo_movimiento", as_index=False)[y_col].sum()
-    fig = px.pie(
-        by_type,
-        values=y_col,
-        names="tipo_movimiento",
-        title=f"Distribución por tipo - {y_label}",
-        color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["teal"], PALETTE["gold"], PALETTE["navy"]],
-        hole=.48,
-    )
-    st.plotly_chart(_style_fig(fig), use_container_width=True)
+    by_type = mov.groupby("tipo_movimiento", as_index=False)[y_col].sum().sort_values(y_col, ascending=False)
+    _render_bar_chart(by_type.rename(columns={"tipo_movimiento": "Tipo", y_col: y_label}), title=f"Distribución por tipo - {y_label}", x="Tipo", y=y_label)
 
 row2_col1, row2_col2 = st.columns(2)
 
@@ -287,19 +291,8 @@ with row2_col1:
         .sort_values(y_col, ascending=False)
         .head(10)
     )
-    top_sku["producto"] = top_sku["sku"].astype(str) + " | " + top_sku["nombre_producto"].astype(str).str.slice(0, 34)
-    fig = px.bar(
-        top_sku,
-        x=y_col,
-        y="producto",
-        orientation="h",
-        title=f"Top 10 productos movidos - {y_label}",
-        labels={y_col: y_label},
-        color=y_col,
-        color_continuous_scale=[[0, PALETTE["teal_soft"]], [0.65, PALETTE["teal"]], [1, PALETTE["teal_dark"]]],
-    )
-    fig.update_layout(yaxis=dict(autorange="reversed"), coloraxis_showscale=False)
-    st.plotly_chart(_style_fig(fig), use_container_width=True)
+    top_sku["Producto"] = top_sku["sku"].astype(str) + " | " + top_sku["nombre_producto"].astype(str).str.slice(0, 24)
+    _render_bar_chart(top_sku.rename(columns={y_col: y_label}), title=f"Top 10 productos movidos - {y_label}", x="Producto", y=y_label)
 
 with row2_col2:
     salidas_cuenta = salidas.copy()
@@ -312,16 +305,8 @@ with row2_col2:
             .sort_values(y_col, ascending=False)
             .head(10)
         )
-        by_account["cuenta"] = by_account["codigo_cuenta"].astype(str) + " | " + by_account["nombre_cuenta"].astype(str).str.slice(0, 30)
-        fig = px.bar(
-            by_account,
-            x="cuenta",
-            y=y_col,
-            title=f"Top cuentas por salidas - {y_label}",
-            labels={y_col: y_label},
-            color_discrete_sequence=[PALETTE["teal"]],
-        )
-        st.plotly_chart(_style_fig(fig), use_container_width=True)
+        by_account["Cuenta"] = by_account["codigo_cuenta"].astype(str) + " | " + by_account["nombre_cuenta"].astype(str).str.slice(0, 22)
+        _render_bar_chart(by_account.rename(columns={y_col: y_label}), title=f"Top cuentas por salidas - {y_label}", x="Cuenta", y=y_label)
 
 row3_col1, row3_col2 = st.columns(2)
 
@@ -338,18 +323,8 @@ with row3_col1:
             .sort_values("valor_stock_cuenta", ascending=False)
             .head(12)
         )
-        valor_cuenta["cuenta"] = valor_cuenta["codigo_cuenta"].astype(str) + " | " + valor_cuenta["nombre_cuenta"].astype(str).str.slice(0, 30)
-        fig = px.bar(
-            valor_cuenta,
-            x="valor_stock_cuenta",
-            y="cuenta",
-            orientation="h",
-            title="Valor de stock por cuenta logística (S/.)",
-            labels={"valor_stock_cuenta": "Monto S/."},
-            color_discrete_sequence=[PALETTE["teal_dark"]],
-        )
-        fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(_style_fig(fig), use_container_width=True)
+        valor_cuenta["Cuenta"] = valor_cuenta["codigo_cuenta"].astype(str) + " | " + valor_cuenta["nombre_cuenta"].astype(str).str.slice(0, 22)
+        _render_bar_chart(valor_cuenta.rename(columns={"valor_stock_cuenta": "Monto S/."}), title="Valor de stock por cuenta logística (S/.)", x="Cuenta", y="Monto S/.")
 
 with row3_col2:
     mov_valor = mov[mov["tipo_movimiento"].astype(str).str.upper().isin(["ENTRADA", "SALIDA_CUENTA"])].copy()
@@ -361,17 +336,14 @@ with row3_col2:
             .sum()
             .sort_values("fecha_str")
         )
-        fig = px.line(
-            line_valor,
-            x="fecha_str",
-            y="importe_soles",
-            color="tipo_movimiento",
-            markers=True,
-            title="Entradas vs salidas del almacén principal (S/.)",
-            labels={"importe_soles": "Monto S/.", "fecha_str": "Fecha"},
-            color_discrete_sequence=[PALETTE["teal_dark"], PALETTE["gold"]],
+        line_pivot = line_valor.pivot_table(
+            index="fecha_str",
+            columns="tipo_movimiento",
+            values="importe_soles",
+            aggfunc="sum",
+            fill_value=0,
         )
-        st.plotly_chart(_style_fig(fig), use_container_width=True)
+        _render_line_chart(line_pivot, "Entradas vs salidas del almacén principal (S/.)")
 
 row4_col1, row4_col2 = st.columns(2)
 
@@ -386,17 +358,8 @@ with row4_col1:
             .sort_values(y_col, ascending=False)
             .head(10)
         )
-        fig = px.bar(
-            by_provider,
-            x=y_col,
-            y="razon_social_proveedor",
-            orientation="h",
-            title=f"Top proveedores por ingresos - {y_label}",
-            labels={y_col: y_label},
-            color_discrete_sequence=[PALETTE["gold"]],
-        )
-        fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(_style_fig(fig), use_container_width=True)
+        by_provider["Proveedor"] = by_provider["razon_social_proveedor"].astype(str).str.slice(0, 26)
+        _render_bar_chart(by_provider.rename(columns={y_col: y_label}), title=f"Top proveedores por ingresos - {y_label}", x="Proveedor", y=y_label)
 
 with row4_col2:
     if low_stock.empty:
