@@ -131,10 +131,21 @@ with tab_aprobacion_rf:
                 | filtered_rf["nombre_cuenta"].astype(str).str.lower().str.contains(v, na=False)
             ]
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Pickings RF", filtered_rf["id_picking"].nunique())
         m2.metric("Cantidad pendiente aprobar", f"{filtered_rf['cantidad_atendida'].sum():,.2f}")
         m3.metric("Tareas completadas", int(filtered_rf["tareas_completadas"].sum()))
+        if "cortos_pendientes" in filtered_rf.columns:
+            m4.metric("Cortos pendientes", int(filtered_rf["cortos_pendientes"].sum()))
+        else:
+            m4.metric("Cortos pendientes", 0)
+
+        if "tiene_cortos" in filtered_rf.columns:
+            pickings_con_cortos = filtered_rf[filtered_rf["tiene_cortos"].astype(bool)]
+            if not pickings_con_cortos.empty:
+                st.warning(
+                    "Hay pickings RF con cortos pendientes. No podrán aprobarse hasta reasignar o cancelar los cortos."
+                )
 
         edited_rf = st.data_editor(
             filtered_rf,
@@ -154,16 +165,24 @@ with tab_aprobacion_rf:
             if not selected_rf:
                 st.error("Selecciona al menos un picking RF para aprobar.")
             else:
-                try:
-                    result = aprobar_pickings_rf(selected_rf, current_user_id())
-                    st.session_state["msg_atencion_picking"] = (
-                        f"Pickings aprobados: {result['pickings_aprobados']}. "
-                        f"Movimientos confirmados: {result['movimientos_aprobados']}. "
-                        f"Cantidad aprobada: {result['qty_aprobada']:,.2f}."
+                selected_rows = filtered_rf[filtered_rf["id_picking"].astype(int).isin(selected_rf)].copy()
+                if "tiene_cortos" in selected_rows.columns and selected_rows["tiene_cortos"].astype(bool).any():
+                    blocked = selected_rows[selected_rows["tiene_cortos"].astype(bool)]["nro_picking"].astype(str).tolist()
+                    st.error(
+                        "Picking con cortos, Reasigne o cancele cortos para aprobar: "
+                        + ", ".join(blocked)
                     )
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
-                except Exception as exc:
-                    st.error("No se pudo aprobar el picking RF.")
-                    st.exception(exc)
+                else:
+                    try:
+                        result = aprobar_pickings_rf(selected_rf, current_user_id())
+                        st.session_state["msg_atencion_picking"] = (
+                            f"Pickings aprobados: {result['pickings_aprobados']}. "
+                            f"Movimientos confirmados: {result['movimientos_aprobados']}. "
+                            f"Cantidad aprobada: {result['qty_aprobada']:,.2f}."
+                        )
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        st.error("No se pudo aprobar el picking RF.")
+                        st.exception(exc)
