@@ -1800,10 +1800,10 @@ def atender_tareas_picking(
 def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
     """Aprueba pickings atendidos por RF y carga el stock a la cuenta logística.
 
-    Durante la atención RF se descuenta stock físico y se generan movimientos
-    SALIDA_CUENTA en estado PENDIENTE_APROBACION, pero no se actualiza
-    stock_cuenta. Esta función confirma esos movimientos y actualiza el stock
-    de la cuenta solicitante.
+    La aprobación se basa en movimientos SALIDA_CUENTA realmente pendientes de
+    aprobación, no solamente en el estado del header del picking. Esto permite
+    cerrar pickings que quedaron con estado desactualizado luego de cancelar o
+    reasignar cortos, siempre que no existan cortos activos ni tareas liberadas.
     """
     if not ids_picking:
         raise ValueError("Selecciona al menos un picking para aprobar.")
@@ -1825,7 +1825,19 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                         WHERE m.tipo_movimiento = 'SALIDA_CUENTA'
                           AND m.estado = 'PENDIENTE_APROBACION'
                           AND m.referencia = 'PICKING ' + ph.nro_picking
-                    ) AS movimientos_pendientes
+                    ) AS movimientos_pendientes,
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.picking_detalle pd
+                        WHERE pd.id_picking = ph.id_picking
+                          AND pd.estado = 'CORTO'
+                    ) AS cortos_pendientes,
+                    (
+                        SELECT COUNT(1)
+                        FROM dbo.picking_detalle pd
+                        WHERE pd.id_picking = ph.id_picking
+                          AND pd.estado = 'LIBERADO'
+                    ) AS tareas_liberadas_pendientes
                 FROM dbo.picking_header ph WITH (UPDLOCK, ROWLOCK)
                 WHERE ph.id_picking IN ({placeholders})
             """),
@@ -1835,50 +1847,19 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
         if not pickings:
             raise ValueError("No se encontraron pickings para aprobar.")
 
-        invalid = [
-            p["nro_picking"]
-            for p in pickings
-            if str(p["estado_aprobacion_admin"] or "PENDIENTE") != "PENDIENTE"
-            and int(p.get("movimientos_pendientes") or 0) <= 0
-        ]
-        if invalid:
-            raise ValueError("Solo se pueden aprobar pickings RF en estado de aprobación PENDIENTE: " + ", ".join(invalid))
-
-        invalid_estado = [
-            p["nro_picking"]
-            for p in pickings
-            if str(p["estado"] or "") not in {"COMPLETADO", "COMPLETADO-CORTO", "COMPLETADO-PARCIAL"}
-        ]
-        if invalid_estado:
-            raise ValueError("Solo se pueden aprobar pickings completados por RF: " + ", ".join(invalid_estado))
-
         sin_movimientos = [p["nro_picking"] for p in pickings if int(p.get("movimientos_pendientes") or 0) <= 0]
         if sin_movimientos:
             raise ValueError("El picking no tiene movimientos reales pendientes de aprobación: " + ", ".join(sin_movimientos))
 
-        # Bloqueo operativo: no aprobar pickings RF si todavía tienen cortos activos.
-        # El administrador debe reasignar o cancelar los cortos antes de aprobar. Esto
-        # evita dejar movimientos PENDIENTE_APROBACION sin cierre y stock detenido en B1.ST.01.
-        cortos = list(conn.execute(
-            text(f"""
-                SELECT
-                    ph.nro_picking,
-                    COUNT(*) AS cortos_pendientes,
-                    CAST(SUM(ISNULL(pd.cantidad_solicitada, 0)) AS DECIMAL(18,2)) AS cantidad_corta
-                FROM picking_header ph
-                INNER JOIN picking_detalle pd ON pd.id_picking = ph.id_picking
-                WHERE ph.id_picking IN ({placeholders})
-                  AND pd.estado = 'CORTO'
-                GROUP BY ph.nro_picking
-            """),
-            params,
-        ).mappings())
-        if cortos:
-            msg = ", ".join(
-                f"{r['nro_picking']} ({int(r['cortos_pendientes'] or 0)} cortos / {float(r['cantidad_corta'] or 0):,.2f} und.)"
-                for r in cortos
-            )
+        con_cortos = [p for p in pickings if int(p.get("cortos_pendientes") or 0) > 0]
+        if con_cortos:
+            msg = ", ".join(f"{p['nro_picking']} ({int(p.get('cortos_pendientes') or 0)} cortos)" for p in con_cortos)
             raise ValueError("Picking con cortos, Reasigne o cancele cortos para aprobar: " + msg)
+
+        con_tareas_liberadas = [p for p in pickings if int(p.get("tareas_liberadas_pendientes") or 0) > 0]
+        if con_tareas_liberadas:
+            msg = ", ".join(f"{p['nro_picking']} ({int(p.get('tareas_liberadas_pendientes') or 0)} tareas pendientes)" for p in con_tareas_liberadas)
+            raise ValueError("Picking con tareas liberadas pendientes, termine la atención antes de aprobar: " + msg)
 
         nro_by_id = {int(p["id_picking"]): str(p["nro_picking"]) for p in pickings}
         qty_aprobada = 0.0
@@ -1913,9 +1894,10 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                     qty = float(det["cantidad"] or 0)
                     if qty <= 0:
                         continue
-                    # Al aprobar, el stock sale del stage B1.ST.01 y recién se entrega a la cuenta.
+
+                    # Al aprobar, el stock sale del stage B1.ST.xx y recién se entrega a la cuenta.
                     if det.get("id_ubicacion_destino"):
-                        conn.execute(
+                        rows_updated = conn.execute(
                             text("""
                                 UPDATE stock_ubicacion
                                 SET cantidad_actual = cantidad_actual - :qty,
@@ -1923,6 +1905,7 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                                 WHERE id_producto = :id_producto
                                   AND id_ubicacion = :id_ubicacion_destino
                                   AND ISNULL(lote, '') = ISNULL(:lote, '')
+                                  AND ISNULL(cantidad_actual, 0) >= :qty
                             """),
                             {
                                 "qty": qty,
@@ -1930,7 +1913,13 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                                 "id_ubicacion_destino": int(det["id_ubicacion_destino"]),
                                 "lote": det.get("lote"),
                             },
-                        )
+                        ).rowcount
+                        if rows_updated == 0:
+                            raise ValueError(
+                                f"Stock insuficiente en stage para aprobar {nro_picking}. "
+                                "Verifica B1.ST.xx antes de aprobar."
+                            )
+
                         conn.execute(
                             text("""
                                 DELETE FROM stock_ubicacion
@@ -1967,7 +1956,6 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                     )
                     qty_aprobada += qty
 
-                    # Programa vencimiento de stock cuenta si aplica y si existe la tabla.
                     conn.execute(
                         text("""
                             IF OBJECT_ID('dbo.stock_cuenta_vencimiento', 'U') IS NOT NULL
@@ -1996,7 +1984,7 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                                   );
                             END
                         """),
-                        {"id_detalle": int(det["id_detalle"])},
+                        {"id_detalle": int(det["id_detalle"])}
                     )
 
                 conn.execute(
@@ -2005,7 +1993,7 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                         SET estado = 'CONFIRMADO'
                         WHERE id_movimiento = :id_movimiento
                     """),
-                    {"id_movimiento": int(mov["id_movimiento"])},
+                    {"id_movimiento": int(mov["id_movimiento"])}
                 )
                 movimientos_aprobados += 1
 
@@ -2013,12 +2001,21 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
                 text("""
                     UPDATE picking_header
                     SET estado_aprobacion_admin = 'APROBADO',
+                        requiere_aprobacion_admin = 0,
                         id_usuario_aprobacion = :id_usuario,
                         fecha_aprobacion = dbo.fn_now_bogota_lima(),
-                        fecha_actualizacion = dbo.fn_now_bogota_lima()
+                        fecha_actualizacion = dbo.fn_now_bogota_lima(),
+                        estado = CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM picking_detalle pd
+                                WHERE pd.id_picking = picking_header.id_picking
+                                  AND pd.estado = 'CANCELADO'
+                            ) THEN 'COMPLETADO-CORTO'
+                            ELSE 'COMPLETADO'
+                        END
                     WHERE id_picking = :id_picking
                 """),
-                {"id_picking": int(id_picking), "id_usuario": int(id_usuario)},
+                {"id_picking": int(id_picking), "id_usuario": int(id_usuario)}
             )
 
     return {
@@ -2026,7 +2023,6 @@ def aprobar_pickings_rf(ids_picking: list[int], id_usuario: int) -> dict:
         "movimientos_aprobados": movimientos_aprobados,
         "qty_aprobada": qty_aprobada,
     }
-
 
 def registrar_transferencia_masiva(fecha_movimiento, texto_cabecera: str, id_usuario: int, items: list[dict]) -> int:
     if not items:
