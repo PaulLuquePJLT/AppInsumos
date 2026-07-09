@@ -119,7 +119,7 @@ else:
             if low_stock.empty:
                 st.success("No hay productos bajo mínimo.")
             else:
-                cols = ["sku", "nombre_producto", "cantidad_total", "cantidad_en_picking", "cantidad_disponible", "stock_minimo"]
+                cols = ["sku", "nombre_producto", "cantidad_total", "cantidad_en_picking", "cantidad_en_ingreso", "cantidad_disponible", "stock_minimo"]
                 st.dataframe(low_stock[[c for c in cols if c in low_stock.columns]].reset_index(drop=True), use_container_width=True, hide_index=True)
     except Exception as exc:
         _show_db_error("stock bajo mínimo", exc)
