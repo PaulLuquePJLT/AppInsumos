@@ -89,7 +89,7 @@ with tab_almacen:
     if df.empty:
         st.info("No hay stock físico disponible con los filtros seleccionados.")
     else:
-        editor_df = _prepare_editor(df, "cantidad_disponible")
+        editor_df = _prepare_editor(df, "cantidad_max_ajuste" if "cantidad_max_ajuste" in df.columns else "cantidad_disponible")
         disabled_cols = [c for c in editor_df.columns if c not in {"seleccionar", "cantidad_ajuste"}]
         edited = st.data_editor(
             editor_df,
@@ -99,10 +99,10 @@ with tab_almacen:
             key="editor_salida_ajuste_almacen",
             column_config={
                 "seleccionar": st.column_config.CheckboxColumn("Seleccionar"),
-                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=1.0),
+                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.001, format="%.3f"),
             },
         )
-        items, errors = _selected_rows(edited, "cantidad_disponible")
+        items, errors = _selected_rows(edited, "cantidad_max_ajuste" if "cantidad_max_ajuste" in edited.columns else "cantidad_disponible")
         col_a, col_b = st.columns([1, 2])
         with col_a:
             confirmar = st.checkbox("Confirmo salida ajuste almacén", key="conf_salida_ajuste_almacen")
@@ -164,7 +164,7 @@ with tab_cuentas:
             key="editor_salida_ajuste_cuentas",
             column_config={
                 "seleccionar": st.column_config.CheckboxColumn("Seleccionar"),
-                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=1.0),
+                "cantidad_ajuste": st.column_config.NumberColumn("Cantidad a quitar", min_value=0.0, step=0.001, format="%.3f"),
             },
         )
         items_c, errors_c = _selected_rows(edited_c, "cantidad_neta")
