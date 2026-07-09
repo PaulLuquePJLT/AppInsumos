@@ -92,13 +92,13 @@ function playListenCue(callback) {
     osc.type = 'sine';
     osc.frequency.value = Number(args.cue_frequency || 880);
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(Number(args.cue_volume || 0.08), ctx.currentTime + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.14);
+    gain.gain.exponentialRampToValueAtTime(Number(args.cue_volume || 0.34), ctx.currentTime + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + 0.16);
-    setTimeout(() => { try { ctx.close(); } catch(e) {} done(); }, 175);
+    osc.stop(ctx.currentTime + 0.24);
+    setTimeout(() => { try { ctx.close(); } catch(e) {} done(); }, 255);
   } catch(e) {
     done();
   }
