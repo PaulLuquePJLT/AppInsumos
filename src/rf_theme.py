@@ -1578,6 +1578,38 @@ def apply_rf_theme(login: bool = False) -> None:
             }}
         }}
 
+
+
+        /* ==========================================================
+           RF Voice picking component
+           ========================================================== */
+        iframe[title="rf_voice_assistant"] {{
+            border: 0 !important;
+            width: 100% !important;
+        }}
+
+        .rf-voice-note {{
+            background: rgba(24,169,153,.10);
+            border: 1px solid rgba(24,169,153,.18);
+            color: var(--rf-teal-dark);
+            border-radius: 12px;
+            padding: .34rem .44rem;
+            font-size: .70rem;
+            font-weight: 760;
+            margin: .20rem 0 .32rem 0;
+        }}
+
+        @media (max-width: 900px) {{
+            iframe[title="rf_voice_assistant"] {{
+                min-height: 112px !important;
+            }}
+            .rf-voice-note {{
+                font-size: .58rem !important;
+                padding: .24rem .30rem !important;
+                border-radius: 9px !important;
+            }}
+        }}
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -1585,12 +1617,10 @@ def apply_rf_theme(login: bool = False) -> None:
 
 
 def render_rf_logo_sidebar() -> None:
+    """Muestra el logo del sidebar de forma robusta desde assets/."""
+    logo_html = logo_img(86) or "📦"
     st.sidebar.markdown(
-        f"""
-        <div class="rf-sidebar-logo">
-            {logo_img(86)}
-        </div>
-        """,
+        '<div class="rf-sidebar-logo">' + logo_html + '</div>',
         unsafe_allow_html=True,
     )
 
@@ -1632,4 +1662,3 @@ def render_rf_product_card(product: dict | None, searched_code: str) -> None:
         """,
         unsafe_allow_html=True,
     )
-

@@ -126,6 +126,7 @@ def get_stock_general(sku: str = "", solo_con_stock: bool = True, max_rows: int 
             (
                 ISNULL(cantidad_total, 0) > 0
                 OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_en_ingreso, 0) > 0
                 OR ISNULL(cantidad_disponible, 0) > 0
             )
         """)
@@ -149,15 +150,16 @@ def get_stock_general(sku: str = "", solo_con_stock: bool = True, max_rows: int 
             ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_total,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_en_ingreso, 0) AS cantidad_en_ingreso,
             ISNULL(cantidad_disponible, cantidad_total) AS cantidad_disponible,
             ISNULL(valor_stock_total, cantidad_total * ISNULL(precio_unitario, 0)) AS valor_stock_total,
             ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_en_ingreso, ISNULL(cantidad_en_ingreso, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_ingreso,
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_total) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible
         FROM dbo.vw_stock_general
         {where_sql}
         ORDER BY nombre_producto
     """, params)
-
 
 def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", solo_con_stock: bool = True, max_rows: int | None = None):
     filters = []
@@ -168,6 +170,7 @@ def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", 
             (
                 ISNULL(cantidad_actual, 0) > 0
                 OR ISNULL(cantidad_en_picking, 0) > 0
+                OR ISNULL(cantidad_en_ingreso, 0) > 0
                 OR ISNULL(cantidad_disponible, 0) > 0
             )
         """)
@@ -206,16 +209,17 @@ def get_stock_por_ubicacion(sku: str = "", ubicacion: str = "", zona: str = "", 
             ISNULL(precio_unitario, 0) AS precio_unitario,
             cantidad_actual,
             ISNULL(cantidad_en_picking, 0) AS cantidad_en_picking,
+            ISNULL(cantidad_en_ingreso, 0) AS cantidad_en_ingreso,
             ISNULL(cantidad_disponible, cantidad_actual) AS cantidad_disponible,
             ISNULL(valor_stock_actual, cantidad_actual * ISNULL(precio_unitario, 0)) AS valor_stock_actual,
             ISNULL(valor_stock_en_picking, ISNULL(cantidad_en_picking, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_picking,
+            ISNULL(valor_stock_en_ingreso, ISNULL(cantidad_en_ingreso, 0) * ISNULL(precio_unitario, 0)) AS valor_stock_en_ingreso,
             ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS valor_stock_disponible,
             fecha_actualizacion
         FROM dbo.vw_stock_por_ubicacion
         {where_sql}
         ORDER BY nombre_producto, secuencia, codigo_ubicacion
     """, params)
-
 
 def aplicar_vencimientos_stock_cuenta() -> None:
     """Aplica descuentos de stock en cuenta por vida util vencida.
@@ -275,7 +279,10 @@ def get_stock_por_cuenta(cuenta: str = "", sku: str = "", solo_con_stock: bool =
 
 
 def get_movimientos(fecha_inicio=None, fecha_fin=None, tipo_movimiento: str = "", cuenta: str = "", sku: str = ""):
-    filters = ["fecha_movimiento IS NOT NULL"]
+    filters = [
+        "fecha_movimiento IS NOT NULL",
+        "NOT (tipo_movimiento = 'SALIDA_AJUSTE' AND ISNULL(referencia, '') LIKE 'CORTO PICKING%')",
+    ]
     params = {}
 
     if fecha_inicio is not None:
@@ -1497,7 +1504,21 @@ def get_pedidos_resumen(
             p.estado,
             COUNT(pd.id_pedido_detalle) AS lineas,
             CAST(ISNULL(SUM(pd.cantidad_pedida - pd.cantidad_asignada - pd.cantidad_cancelada), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_picking,
-            CAST(ISNULL(SUM(pd.cantidad_asignada - pd.cantidad_atendida - pd.cantidad_cancelada), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_atencion
+            CAST(ISNULL(SUM(pd.cantidad_asignada - pd.cantidad_atendida - pd.cantidad_cancelada), 0) AS DECIMAL(18,2)) AS cantidad_pendiente_atencion,
+            CASE
+                WHEN ISNULL(SUM(pd.cantidad_atendida), 0) > 0
+                     AND ISNULL(SUM(pd.cantidad_pedida - pd.cantidad_cancelada), 0) <= ISNULL(SUM(pd.cantidad_atendida), 0)
+                    THEN 'Atendido'
+                WHEN ISNULL(SUM(pd.cantidad_atendida), 0) > 0
+                    THEN 'Atendido parcial'
+                ELSE 'No atendido'
+            END AS estado_atencion,
+            CASE
+                WHEN ISNULL(SUM(CASE WHEN pd.estado = 'CORTO' THEN 1 ELSE 0 END), 0) > 0 THEN 'Corto pendiente'
+                WHEN ISNULL(SUM(pd.cantidad_cancelada), 0) > 0 THEN 'Corto cancelado'
+                WHEN ISNULL(SUM(pd.cantidad_atendida), 0) = 0 THEN 'Sin atención registrada'
+                ELSE ''
+            END AS motivo_no_atendido
         FROM pedidos p
         INNER JOIN cuentas_logisticas c ON c.id_cuenta = p.id_cuenta
         LEFT JOIN pedido_detalle pd ON pd.id_pedido = p.id_pedido
@@ -1750,8 +1771,76 @@ def get_tareas_picking_pendientes():
 
 
 def get_pickings_rf_pendientes_aprobacion():
-    """Pickings atendidos por RF pendientes de aprobación de administrador."""
+    """Pickings RF pendientes de aprobación administrativa.
+
+    Esta consulta NO depende únicamente del estado de picking_header. La fuente
+    de verdad para mostrar una aprobación pendiente son los movimientos reales
+    SALIDA_CUENTA con estado PENDIENTE_APROBACION, porque después de gestionar
+    cortos el header puede quedar desalineado mientras todavía existe stock en
+    B1.ST.01 esperando aprobación.
+    """
     return read_dataframe("""
+        WITH pend_mov AS (
+            SELECT
+                REPLACE(m.referencia, 'PICKING ', '') AS nro_picking,
+                COUNT(DISTINCT m.id_movimiento) AS movimientos_pendientes,
+                CAST(SUM(ISNULL(md.cantidad, 0)) AS DECIMAL(18,2)) AS cantidad_pendiente_aprobacion
+            FROM dbo.movimientos m
+            INNER JOIN dbo.movimiento_detalle md
+                ON md.id_movimiento = m.id_movimiento
+            WHERE m.tipo_movimiento = 'SALIDA_CUENTA'
+              AND m.estado = 'PENDIENTE_APROBACION'
+              AND m.referencia LIKE 'PICKING %'
+            GROUP BY REPLACE(m.referencia, 'PICKING ', '')
+        ),
+        detalle_agg AS (
+            SELECT
+                pd.id_picking,
+                MIN(c.codigo_cuenta) AS codigo_cuenta,
+                MIN(c.nombre_cuenta) AS nombre_cuenta,
+                CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
+                SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 ELSE 0 END) AS tareas_completadas,
+                COUNT(DISTINCT pd.id_producto) AS codigos,
+                COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones
+            FROM dbo.picking_detalle pd
+            LEFT JOIN dbo.cuentas_logisticas c
+                ON c.id_cuenta = pd.id_cuenta
+            GROUP BY pd.id_picking
+        ),
+        cortos AS (
+            SELECT
+                id_picking,
+                COUNT(1) AS cortos_pendientes,
+                CAST(SUM(ISNULL(cantidad_solicitada, 0)) AS DECIMAL(18,2)) AS cantidad_corta_pendiente
+            FROM dbo.picking_detalle
+            WHERE estado = 'CORTO'
+            GROUP BY id_picking
+        ),
+        liberadas AS (
+            SELECT
+                id_picking,
+                COUNT(1) AS tareas_liberadas_pendientes
+            FROM dbo.picking_detalle
+            WHERE estado = 'LIBERADO'
+            GROUP BY id_picking
+        ),
+        pedidos_base AS (
+            SELECT DISTINCT
+                pp.id_picking,
+                ped.id_pedido,
+                ped.nro_pedido
+            FROM dbo.picking_pedido pp
+            INNER JOIN dbo.pedidos ped
+                ON ped.id_pedido = pp.id_pedido
+        ),
+        pedidos_agg AS (
+            SELECT
+                id_picking,
+                COUNT(DISTINCT id_pedido) AS pedidos,
+                STRING_AGG(CONVERT(NVARCHAR(MAX), nro_pedido), ', ') AS nro_pedidos
+            FROM pedidos_base
+            GROUP BY id_picking
+        )
         SELECT
             CAST(0 AS BIT) AS seleccionar,
             ph.id_picking,
@@ -1760,35 +1849,45 @@ def get_pickings_rf_pendientes_aprobacion():
             ph.fecha_actualizacion,
             ph.estado,
             ISNULL(ph.origen_atencion, 'RF') AS origen_atencion,
-            ISNULL(ph.estado_aprobacion_admin, 'PENDIENTE') AS estado_aprobacion_admin,
+            CASE
+                WHEN ISNULL(pm.movimientos_pendientes, 0) > 0 THEN 'PENDIENTE'
+                ELSE ISNULL(ph.estado_aprobacion_admin, 'PENDIENTE')
+            END AS estado_aprobacion_admin,
             uc.usuario_login AS usuario_atencion,
-            COUNT(DISTINCT pp.id_pedido) AS pedidos,
-            STRING_AGG(CONVERT(NVARCHAR(MAX), ped.nro_pedido), ', ') AS nro_pedidos,
-            MIN(c.codigo_cuenta) AS codigo_cuenta,
-            MIN(c.nombre_cuenta) AS nombre_cuenta,
-            CAST(SUM(CASE WHEN pd.estado = 'COMPLETADO' THEN ISNULL(pd.cantidad_atendida, 0) ELSE 0 END) AS DECIMAL(18,2)) AS cantidad_atendida,
-            COUNT(CASE WHEN pd.estado = 'COMPLETADO' THEN 1 END) AS tareas_completadas,
-            COUNT(DISTINCT pd.id_producto) AS codigos,
-            COUNT(DISTINCT pd.id_ubicacion_origen) AS ubicaciones
+            ISNULL(pa.pedidos, 0) AS pedidos,
+            ISNULL(pa.nro_pedidos, '') AS nro_pedidos,
+            ISNULL(da.codigo_cuenta, '') AS codigo_cuenta,
+            ISNULL(da.nombre_cuenta, '') AS nombre_cuenta,
+            ISNULL(da.cantidad_atendida, 0) AS cantidad_atendida,
+            ISNULL(da.tareas_completadas, 0) AS tareas_completadas,
+            ISNULL(co.cortos_pendientes, 0) AS cortos_pendientes,
+            ISNULL(co.cantidad_corta_pendiente, 0) AS cantidad_corta_pendiente,
+            ISNULL(lb.tareas_liberadas_pendientes, 0) AS tareas_liberadas_pendientes,
+            ISNULL(da.codigos, 0) AS codigos,
+            ISNULL(da.ubicaciones, 0) AS ubicaciones,
+            CAST(ISNULL(pm.movimientos_pendientes, 0) AS INT) AS movimientos_pendientes_aprobacion,
+            CAST(ISNULL(pm.cantidad_pendiente_aprobacion, 0) AS DECIMAL(18,2)) AS cantidad_pendiente_aprobacion,
+            CASE WHEN ISNULL(co.cortos_pendientes, 0) > 0
+                 THEN CAST(1 AS BIT)
+                 ELSE CAST(0 AS BIT)
+            END AS tiene_cortos
         FROM dbo.picking_header ph
-        INNER JOIN dbo.picking_detalle pd ON pd.id_picking = ph.id_picking
-        LEFT JOIN dbo.picking_pedido pp ON pp.id_picking = ph.id_picking
-        LEFT JOIN dbo.pedidos ped ON ped.id_pedido = pp.id_pedido
-        LEFT JOIN dbo.cuentas_logisticas c ON c.id_cuenta = pd.id_cuenta
-        LEFT JOIN dbo.usuarios uc ON uc.id_usuario = ph.id_usuario_creacion
-        WHERE ISNULL(ph.requiere_aprobacion_admin, 0) = 1
-          AND ISNULL(ph.estado_aprobacion_admin, '') = 'PENDIENTE'
-          AND ph.estado IN ('COMPLETADO','COMPLETADO-CORTO')
-        GROUP BY
-            ph.id_picking,
-            ph.nro_picking,
-            ph.fecha_creacion,
-            ph.fecha_actualizacion,
-            ph.estado,
-            ph.origen_atencion,
-            ph.estado_aprobacion_admin,
-            uc.usuario_login
-        ORDER BY ph.fecha_actualizacion DESC, ph.nro_picking DESC
+        INNER JOIN pend_mov pm
+            ON pm.nro_picking = ph.nro_picking
+        LEFT JOIN detalle_agg da
+            ON da.id_picking = ph.id_picking
+        LEFT JOIN cortos co
+            ON co.id_picking = ph.id_picking
+        LEFT JOIN liberadas lb
+            ON lb.id_picking = ph.id_picking
+        LEFT JOIN pedidos_agg pa
+            ON pa.id_picking = ph.id_picking
+        LEFT JOIN dbo.usuarios uc
+            ON uc.id_usuario = ph.id_usuario_creacion
+        WHERE ISNULL(pm.movimientos_pendientes, 0) > 0
+        ORDER BY
+            ISNULL(ph.fecha_actualizacion, ph.fecha_creacion) DESC,
+            ph.nro_picking DESC
     """)
 
 def get_stock_para_transferencia():
@@ -1954,14 +2053,17 @@ def get_dashboard_kpi_counts():
 # ---------------------------------------------------------------------------
 
 def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
-    """Stock físico disponible para salida por ajuste.
+    """Stock físico para salida por ajuste.
 
-    `cuenta` se acepta por compatibilidad con la página, pero no aplica al almacén físico.
+    Para ubicaciones stage de salida/recepción, la vista debe clasificar:
+      - B1.ST.% como cantidad_en_picking
+      - B1.RE.% como cantidad_en_ingreso
+      - ambas con cantidad_disponible = 0
+
+    Esta función recalcula esos campos en la consulta para que la pantalla se
+    comporte correctamente incluso si alguna vista SQL no fue refrescada aún.
     """
-    filters = [
-        "ISNULL(cantidad_actual, 0) > 0",
-        "ISNULL(cantidad_disponible, cantidad_actual) > 0",
-    ]
+    filters = ["ISNULL(cantidad_actual, 0) > 0"]
     params: dict = {}
 
     if sku:
@@ -1973,9 +2075,45 @@ def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "
 
     where_sql = " AND ".join(filters)
     return read_dataframe(f"""
+        WITH base AS (
+            SELECT
+                id_producto,
+                sku,
+                nombre_producto,
+                codigo_unidad,
+                codigo_zona,
+                id_ubicacion,
+                codigo_ubicacion,
+                tipo_ubicacion,
+                lote,
+                CAST(ISNULL(cantidad_actual, 0) AS decimal(18,3)) AS cantidad_actual,
+                CAST(ISNULL(cantidad_en_picking, 0) AS decimal(18,3)) AS cantidad_en_picking_base,
+                CAST(ISNULL(cantidad_en_ingreso, 0) AS decimal(18,3)) AS cantidad_en_ingreso_base,
+                CAST(ISNULL(cantidad_disponible, 0) AS decimal(18,3)) AS cantidad_disponible_base,
+                CAST(ISNULL(precio_unitario, 0) AS decimal(18,4)) AS precio_unitario
+            FROM dbo.vw_stock_por_ubicacion
+            WHERE {where_sql}
+        ), calc AS (
+            SELECT
+                *,
+                CASE
+                    WHEN codigo_ubicacion LIKE 'B1.ST.%' THEN cantidad_actual
+                    ELSE cantidad_en_picking_base
+                END AS cantidad_en_picking_calc,
+                CASE
+                    WHEN codigo_ubicacion LIKE 'B1.RE.%' THEN cantidad_actual
+                    ELSE cantidad_en_ingreso_base
+                END AS cantidad_en_ingreso_calc,
+                CASE
+                    WHEN codigo_ubicacion LIKE 'B1.ST.%' THEN CAST(0 AS decimal(18,3))
+                    WHEN codigo_ubicacion LIKE 'B1.RE.%' THEN CAST(0 AS decimal(18,3))
+                    ELSE cantidad_disponible_base
+                END AS cantidad_disponible_calc
+            FROM base
+        )
         SELECT
             CAST(0 AS bit) AS seleccionar,
-            CAST(0 AS decimal(18,2)) AS cantidad_ajuste,
+            CAST(0 AS decimal(18,3)) AS cantidad_ajuste,
             id_producto,
             sku,
             nombre_producto,
@@ -1985,16 +2123,22 @@ def get_stock_ajuste_almacen(sku: str = "", ubicacion: str = "", cuenta: str = "
             codigo_ubicacion,
             tipo_ubicacion,
             lote,
-            CAST(ISNULL(cantidad_actual, 0) AS decimal(18,2)) AS cantidad_actual,
-            CAST(ISNULL(cantidad_en_picking, 0) AS decimal(18,2)) AS cantidad_en_picking,
-            CAST(ISNULL(cantidad_disponible, cantidad_actual) AS decimal(18,2)) AS cantidad_disponible,
-            CAST(ISNULL(precio_unitario, 0) AS decimal(18,4)) AS precio_unitario,
-            CAST(ISNULL(valor_stock_disponible, ISNULL(cantidad_disponible, cantidad_actual) * ISNULL(precio_unitario, 0)) AS decimal(18,2)) AS valor_stock_disponible
-        FROM dbo.vw_stock_por_ubicacion
-        WHERE {where_sql}
+            cantidad_actual,
+            CAST(cantidad_en_picking_calc AS decimal(18,3)) AS cantidad_en_picking,
+            CAST(cantidad_en_ingreso_calc AS decimal(18,3)) AS cantidad_en_ingreso,
+            CAST(cantidad_disponible_calc AS decimal(18,3)) AS cantidad_disponible,
+            CAST(
+                CASE
+                    WHEN codigo_ubicacion LIKE 'B1.ST.%' THEN cantidad_actual
+                    WHEN codigo_ubicacion LIKE 'B1.RE.%' THEN cantidad_actual
+                    ELSE cantidad_disponible_calc
+                END AS decimal(18,3)
+            ) AS cantidad_max_ajuste,
+            precio_unitario,
+            CAST(cantidad_disponible_calc * precio_unitario AS decimal(18,2)) AS valor_stock_disponible
+        FROM calc
         ORDER BY codigo_ubicacion, sku, lote
     """, params)
-
 
 def get_stock_ajuste_cuentas(sku: str = "", ubicacion: str = "", cuenta: str = "") -> pd.DataFrame:
     """Stock neto por cuenta disponible para salida por ajuste."""

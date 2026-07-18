@@ -22,11 +22,23 @@ except Exception:  # compatibilidad si src.db no tiene esta función
     def reset_engine_pool() -> None:
         return None
 from src.rf_scanner import consume_scanned_value, scan_text_input
+from src.rf_voice import (
+    build_audit_prompt,
+    build_voice_instruction,
+    consume_voice_event,
+    handle_help_text,
+    log_voice_event,
+    mark_task_voice_confirmation,
+    register_voice_short_incident,
+    render_voice_assistant,
+    reset_voice_autoplay,
+)
 from src.rf_movimientos import (
     confirmar_ingreso_rf,
     confirmar_tarea_picking_rf,
     confirmar_transferencia_rf,
 )
+from src.movimientos import atender_tarea_picking_con_corto_parcial
 from src.rf_queries import (
     rf_clear_master_cache,
     rf_find_product_by_code,
@@ -56,7 +68,7 @@ st.set_page_config(
 
 
 ALLOWED_ROLES = {"operario", "administrador", "admin"}
-RF_IDLE_TIMEOUT_SECONDS = 180
+RF_IDLE_TIMEOUT_SECONDS = 300
 
 
 def _normalize_role(value: str | None) -> str:
@@ -127,6 +139,22 @@ def _clear_rf_session_state() -> None:
         "rf_stock_ubicacion",
         "rf_last_activity_ts",
         "_rf_idle_watchdog_loaded",
+        "rf_voice_enabled",
+        "rf_voice_auto_listen",
+        "rf_voice_task_key",
+        "rf_voice_short_pending",
+        "rf_voice_short_task_id",
+        "rf_voice_short_qty",
+        "rf_voice_short_transcript",
+        "rf_voice_processed_event",
+        "rf_voice_step",
+        "rf_voice_cancel_confirm",
+        "rf_voice_waiting_presence",
+        "rf_voice_presence_resume",
+        "rf_voice_greeting_done",
+        "rf_voice_last_zone_code",
+        "rf_voice_last_location_code",
+        "rf_voice_same_location_intro",
     ]:
         if key in st.session_state:
             del st.session_state[key]
@@ -147,7 +175,7 @@ def _handle_timeout_query_param() -> None:
     try:
         if st.query_params.get("wms_timeout") or st.query_params.get("rf_timeout"):
             _clear_rf_session_state()
-            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+            st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 5 minutos de inactividad."
             st.query_params.clear()
             st.rerun()
     except Exception:
@@ -164,7 +192,7 @@ def _enforce_rf_idle_timeout() -> bool:
 
     if now - last_activity > RF_IDLE_TIMEOUT_SECONDS:
         _clear_rf_session_state()
-        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 3 minutos de inactividad."
+        st.session_state["rf_timeout_message"] = "Tu sesión RF se cerró automáticamente por 5 minutos de inactividad."
         return True
 
     st.session_state.rf_last_activity_ts = now
@@ -349,6 +377,14 @@ def render_sidebar() -> None:
             key="rf_nav_picking",
             on_click=_set_page,
             args=("Picking",),
+        )
+        st.button(
+            "◎ Voice Picking",
+            use_container_width=True,
+            type="primary" if current_page == "Voice Picking" else "secondary",
+            key="rf_nav_voice_picking",
+            on_click=_set_page,
+            args=("Voice Picking",),
         )
         st.button(
             "⇄ Transferencia",
@@ -589,40 +625,108 @@ def _render_confirm_ingreso_dialog() -> None:
                 st.rerun()
 
 
+
 # ---------------------------------------------------------------------------
-# Picking RF
+# Picking RF manual y Voice Picking
 # ---------------------------------------------------------------------------
 
 
-def _start_picking(id_picking: int, nro_picking: str, total_tareas: int) -> None:
+def _start_picking(id_picking: int, nro_picking: str, total_tareas: int, *, voice: bool = False) -> None:
     st.session_state.rf_picking_id = int(id_picking)
     st.session_state.rf_picking_nro = nro_picking
-    st.session_state.rf_picking_mode = "tareas"
+    st.session_state.rf_picking_mode = "voice_tareas" if voice else "tareas"
     st.session_state.rf_picking_total = int(total_tareas or 0)
     st.session_state.rf_picking_done_session = 0
+    _reset_voice_state(clear_last_zone=True)
     rf_clear_master_cache()
     st.rerun()
 
 
-def _back_to_picking_list() -> None:
-    for key in ["rf_picking_id", "rf_picking_nro", "rf_picking_mode", "rf_picking_total", "rf_picking_done_session", "rf_cancel_picking_process"]:
+def _reset_voice_state(clear_last_zone: bool = False) -> None:
+    """Limpia estado temporal de la tarea de voz.
+
+    Importante: no se elimina rf_voice_greeting_done en cada tarea, para que
+    el saludo se reproduzca solo al iniciar la atención del picking y no en
+    cada posición. Solo se limpia cuando volvemos a la lista o iniciamos otro
+    picking completo.
+    """
+    for key in [
+        "rf_voice_task_key",
+        "rf_voice_step",
+        "rf_voice_short_pending",
+        "rf_voice_short_task_id",
+        "rf_voice_short_qty",
+        "rf_voice_short_transcript",
+        "rf_voice_processed_event",
+        "rf_voice_cancel_confirm",
+        "rf_voice_presence_resume",
+        "rf_voice_waiting_presence",
+        "rf_voice_unrecognized",
+    ]:
+        st.session_state.pop(key, None)
+    if clear_last_zone:
+        st.session_state.pop("rf_voice_last_zone_code", None)
+        st.session_state.pop("rf_voice_last_location_code", None)
+        st.session_state.pop("rf_voice_same_location_intro", None)
+        st.session_state.pop("rf_voice_greeting_done", None)
+        st.session_state.pop("rf_voice_farewell_played", None)
+
+
+def _back_to_picking_list(farewell: str | None = None) -> None:
+    if farewell:
+        st.session_state.rf_voice_farewell_text = farewell
+    for key in [
+        "rf_picking_id",
+        "rf_picking_nro",
+        "rf_picking_mode",
+        "rf_picking_total",
+        "rf_picking_done_session",
+        "rf_cancel_picking_process",
+    ]:
         if key in st.session_state:
             del st.session_state[key]
+    _reset_voice_state(clear_last_zone=True)
     rf_clear_master_cache()
     st.rerun()
 
 
 def render_picking() -> None:
+    """Picking manual: mantiene la versión sin voice picking."""
     mode = st.session_state.get("rf_picking_mode", "lista")
     if mode == "tareas" and st.session_state.get("rf_picking_id"):
-        _render_picking_tareas()
+        _render_picking_tareas_manual()
     elif mode == "auditoria" and st.session_state.get("rf_picking_id"):
-        _render_picking_auditoria()
+        _render_picking_auditoria(voice=False)
     else:
-        _render_picking_lista()
+        _render_picking_lista(voice=False)
 
 
-def _render_picking_lista() -> None:
+def render_voice_picking() -> None:
+    """Voice Picking conversacional."""
+    mode = st.session_state.get("rf_picking_mode", "voice_lista")
+    if mode == "voice_tareas" and st.session_state.get("rf_picking_id"):
+        _render_voice_picking_tareas()
+    elif mode == "voice_auditoria" and st.session_state.get("rf_picking_id"):
+        _render_picking_auditoria(voice=True)
+    else:
+        _render_picking_lista(voice=True)
+
+
+def _render_picking_lista(*, voice: bool = False) -> None:
+    if voice and st.session_state.get("rf_voice_farewell_text"):
+        farewell_text = str(st.session_state.get("rf_voice_farewell_text") or "Picking finalizado. Buen trabajo.")
+        st.markdown('<div class="rf-voice-note"><b>Picking finalizado</b><br>El proceso de voz quedó cerrado correctamente.</div>', unsafe_allow_html=True)
+        render_voice_assistant(
+            farewell_text,
+            key="rf_voice_farewell",
+            auto_play=True,
+            auto_listen=False,
+            keepalive=False,
+            height=54,
+        )
+        # Mantener el mensaje solo durante el primer render posterior al cierre.
+        st.session_state.pop("rf_voice_farewell_text", None)
+
     data = rf_get_pickings_pendientes()
     if data.empty:
         st.info("No hay pickings pendientes de atención.")
@@ -647,11 +751,105 @@ def _render_picking_lista() -> None:
             """,
             unsafe_allow_html=True,
         )
-        if st.button(f"Atender {row['nro_picking']}", key=f"rf_start_pk_{row['id_picking']}", use_container_width=True, type="primary"):
-            _start_picking(int(row["id_picking"]), str(row["nro_picking"]), int(row.get("tareas_pendientes") or 0))
+        button_label = f"Voice Picking {row['nro_picking']}" if voice else f"Atender {row['nro_picking']}"
+        if st.button(button_label, key=f"rf_start_{'voice' if voice else 'manual'}_pk_{row['id_picking']}", use_container_width=True, type="primary"):
+            _start_picking(int(row["id_picking"]), str(row["nro_picking"]), int(row.get("tareas_pendientes") or 0), voice=voice)
 
 
-def _render_picking_tareas() -> None:
+def _confirm_current_picking_task(tarea: dict, current: int, done: int, *, voice_event: dict | None = None) -> None:
+    try:
+        st.session_state.rf_voice_last_location_code = str(tarea.get("codigo_ubicacion") or "")
+        st.session_state.rf_voice_last_zone_code = str(tarea.get("codigo_zona") or "")
+        confirmar_tarea_picking_rf(int(tarea["id_picking_detalle"]), current_user_id())
+        if voice_event:
+            mark_task_voice_confirmation(
+                id_picking_detalle=int(tarea["id_picking_detalle"]),
+                transcript=voice_event.get("transcript"),
+                confidence=voice_event.get("confidence"),
+            )
+            log_voice_event(
+                id_usuario=current_user_id(),
+                id_picking=int(tarea["id_picking"]),
+                id_picking_detalle=int(tarea["id_picking_detalle"]),
+                evento="TAREA_CONFIRMADA_VOZ",
+                texto_reconocido=voice_event.get("transcript"),
+                comando_normalizado=voice_event.get("command"),
+                confianza=voice_event.get("confidence"),
+            )
+        st.session_state.rf_picking_done_session = done + 1
+        _reset_voice_state(clear_last_zone=False)
+        rf_clear_master_cache()
+        st.rerun()
+    except Exception as exc:
+        st.error("No se pudo confirmar la tarea.")
+        with st.expander("Detalle técnico"):
+            st.code(str(exc))
+
+
+
+def _render_html_card(html: str) -> None:
+    """Renderiza HTML operativo sin que Streamlit lo escape como texto."""
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def _confirm_short_current_picking_task(tarea: dict, cantidad_encontrada: float) -> None:
+    try:
+        result = atender_tarea_picking_con_corto_parcial(
+            id_picking_detalle=int(tarea["id_picking_detalle"]),
+            cantidad_encontrada=float(cantidad_encontrada),
+            id_usuario=current_user_id(),
+            observacion="Corto RF manual",
+            requiere_aprobacion_admin=True,
+            origen_atencion="RF",
+            transcript=f"Corto manual. Cantidad encontrada {cantidad_encontrada}",
+            confidence=None,
+        )
+        st.session_state.rf_picking_done_session = int(st.session_state.get("rf_picking_done_session") or 0) + (1 if float(cantidad_encontrada or 0) > 0 else 0)
+        st.session_state.pop("rf_manual_short_open", None)
+        st.session_state.pop("rf_manual_short_qty", None)
+        rf_clear_master_cache()
+        st.success(f"Corto registrado. Atendido: {float(result.get('qty_atendida', 0)):,.2f}; corto: {float(result.get('qty_corto', 0)):,.2f}.")
+        st.rerun()
+    except Exception as exc:
+        st.error("No se pudo registrar el corto.")
+        with st.expander("Detalle técnico"):
+            st.code(str(exc))
+
+def _task_card_html(tarea: dict, current: int, total: int, step_label: str = "") -> str:
+    step_badge = f'<div class="rf-pill">PASO: {step_label}</div>' if step_label else ""
+    return f"""
+    <div class="rf-task-main rf-task-compact">
+        <div class="rf-task-header">
+            <div class="rf-task-pk">{st.session_state.get('rf_picking_nro', '')}</div>
+            <div class="rf-task-counter">Tarea {current}/{total}</div>
+        </div>
+        {step_badge}
+        <div class="rf-task-row">
+            <div>
+                <div class="rf-task-big-label">Ubicación</div>
+                <div class="rf-task-big-value rf-location-value">{tarea.get('codigo_ubicacion')}</div>
+            </div>
+            <div>
+                <div class="rf-task-big-label">Cantidad</div>
+                <div class="rf-task-big-value rf-qty-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
+            </div>
+        </div>
+        <div class="rf-task-big-label">Artículo</div>
+        <div class="rf-task-product">{tarea.get('sku')} · {tarea.get('nombre_producto')}</div>
+        <div class="rf-grid rf-grid-compact">
+            <div class="rf-field"><div class="rf-label">Zona</div><div class="rf-value">{tarea.get('codigo_zona')} - {tarea.get('nombre_zona')}</div></div>
+            <div class="rf-field"><div class="rf-label">Cuenta</div><div class="rf-value">{tarea.get('codigo_cuenta')}</div></div>
+            <div class="rf-field"><div class="rf-label">Unidad</div><div class="rf-value">{tarea.get('nombre_unidad') or tarea.get('codigo_unidad')}</div></div>
+            <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{tarea.get('lote') or '-'}</div></div>
+        </div>
+    </div>
+    """
+
+
+def _render_picking_tareas_manual() -> None:
     id_picking = int(st.session_state.rf_picking_id)
     tareas = rf_get_tareas_picking(id_picking)
     total = int(st.session_state.get("rf_picking_total") or len(tareas))
@@ -663,54 +861,302 @@ def _render_picking_tareas() -> None:
 
     tarea = tareas.iloc[0].to_dict()
     current = min(done + 1, total if total > 0 else 1)
+    _render_html_card(_task_card_html(tarea, current, total))
 
+    col1, col2, col3 = st.columns([1, 1, 1])
+    if col1.button("Confirmar", type="primary", use_container_width=True):
+        _confirm_current_picking_task(tarea, current, done)
+
+    if col2.button("Registrar corto", use_container_width=True):
+        st.session_state.rf_manual_short_open = True
+        st.session_state.rf_manual_short_qty = float(tarea.get("cantidad_picking") or 0)
+
+    if col3.button("Cancelar", use_container_width=True):
+        st.session_state.rf_cancel_picking_process = True
+
+    if st.session_state.get("rf_manual_short_open"):
+        with st.container(border=True):
+            st.markdown("**Registrar corto**")
+            st.caption("Indica la cantidad realmente encontrada. El sistema atenderá esa cantidad y generará un corto por la diferencia.")
+            qty_asignada = float(tarea.get("cantidad_picking") or 0)
+            qty_encontrada = st.number_input(
+                "Cantidad encontrada",
+                min_value=0.0,
+                max_value=qty_asignada,
+                step=0.001,
+                format="%.3f",
+                value=float(st.session_state.get("rf_manual_short_qty") or 0),
+                key="rf_manual_short_qty_input",
+            )
+            c_ok, c_cancel = st.columns(2)
+            if c_ok.button("Confirmar corto", type="primary", use_container_width=True):
+                _confirm_short_current_picking_task(tarea, qty_encontrada)
+            if c_cancel.button("Cerrar", use_container_width=True):
+                st.session_state.pop("rf_manual_short_open", None)
+                st.rerun()
+
+    if st.session_state.get("rf_cancel_picking_process"):
+        _render_cancel_picking_dialog()
+
+
+def _voice_step_label(step: str) -> str:
+    return {
+        "ubicacion": "UBICACIÓN",
+        "material": "MATERIAL",
+        "cantidad": "CANTIDAD",
+    }.get(step, step.upper())
+
+
+def _voice_help(step: str, short_pending: bool = False, short_qty: float | None = None, cancel_confirm: bool = False) -> str:
+    if cancel_confirm:
+        return "Puedes decir: cancelar para confirmar la cancelación, o continuar para seguir."
+    if short_pending and short_qty is None:
+        return "Indica la cantidad encontrada. Ejemplo: cinco, diez, veinte."
+    if short_pending and short_qty is not None:
+        return "Puedes decir: confirmar corto, o indicar otra cantidad."
+    if step == "ubicacion":
+        return "Puedes decir: estoy aquí, repítelo, repite ubicación o cancelar picking."
+    if step == "material":
+        return "Puedes decir: ok, correcto, conforme, repite código o cancelar picking."
+    if step == "cantidad":
+        return "Puedes decir: ok, correcto, conforme, repite cantidad, tengo corto o cancelar picking."
+    return handle_help_text(step)
+
+
+def _current_voice_key(tarea: dict, step: str) -> str:
+    suffix = ""
+    if st.session_state.get("rf_voice_cancel_confirm"):
+        suffix += "_cancel"
+    if st.session_state.get("rf_voice_short_pending"):
+        suffix += f"_short_{st.session_state.get('rf_voice_short_qty')}"
+    if st.session_state.get("rf_voice_presence_resume"):
+        suffix += "_resume"
+    if st.session_state.get("rf_voice_unrecognized"):
+        suffix += "_unrecognized"
+    return f"rf_voice_task_{int(tarea['id_picking_detalle'])}_{step}{suffix}"
+
+
+def _handle_voice_command(event: dict, tarea: dict, current: int, total: int, done: int, prompt: str, voice_key: str) -> None:
+    command = str(event.get("command") or "").upper()
+    transcript = str(event.get("transcript") or "")
+    confidence = event.get("confidence")
+    step = str(st.session_state.get("rf_voice_step") or "ubicacion")
+
+    log_voice_event(
+        id_usuario=current_user_id(),
+        id_picking=int(tarea["id_picking"]),
+        id_picking_detalle=int(tarea["id_picking_detalle"]),
+        evento="COMANDO_RECONOCIDO" if command not in {"NO_RECONOCIDO", "NO_INPUT"} else "COMANDO_NO_RECONOCIDO",
+        texto_emitido=prompt,
+        texto_reconocido=transcript,
+        comando_normalizado=command,
+        confianza=confidence,
+    )
+
+    if command == "NO_RECONOCIDO":
+        st.session_state.rf_voice_unrecognized = True
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    # Si ya hubo un comando válido, limpiar mensaje anterior de no reconocido.
+    st.session_state.rf_voice_unrecognized = False
+
+    if command == "NO_INPUT":
+        # El componente se encargará de preguntar "¿Estás ahí?" cada 10 segundos.
+        st.session_state.rf_voice_waiting_presence = True
+        return
+
+    if command == "PRESENCIA":
+        st.session_state.rf_voice_waiting_presence = False
+        st.session_state.rf_voice_presence_resume = True
+        st.session_state.rf_voice_unrecognized = False
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if command == "CANCELAR_PICKING":
+        if st.session_state.get("rf_voice_cancel_confirm"):
+            _back_to_picking_list()
+        else:
+            st.session_state.rf_voice_cancel_confirm = True
+            reset_voice_autoplay(voice_key)
+            st.rerun()
+
+    if command in {"NO", "CONTINUAR"} and st.session_state.get("rf_voice_cancel_confirm"):
+        st.session_state.rf_voice_cancel_confirm = False
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if command == "REPETIR":
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+    if command == "REPETIR_UBICACION":
+        st.session_state.rf_voice_step = "ubicacion"
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+    if command == "REPETIR_CODIGO":
+        st.session_state.rf_voice_step = "material"
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+    if command == "REPETIR_CANTIDAD":
+        st.session_state.rf_voice_step = "cantidad"
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if command == "AYUDA":
+        st.info(handle_help_text(step))
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if st.session_state.get("rf_voice_short_pending"):
+        if command == "CANTIDAD":
+            st.session_state.rf_voice_short_qty = event.get("quantity")
+            st.session_state.rf_voice_short_transcript = transcript
+            reset_voice_autoplay(voice_key)
+            st.rerun()
+        if command == "CONFIRMAR_CORTO":
+            qty = st.session_state.get("rf_voice_short_qty")
+            if qty is None:
+                # Todavía no hay cantidad encontrada; volver a pedirla.
+                st.session_state.rf_voice_short_pending = True
+                reset_voice_autoplay(voice_key)
+                st.rerun()
+            register_voice_short_incident(
+                id_usuario=current_user_id(),
+                id_picking=int(tarea["id_picking"]),
+                id_picking_detalle=int(tarea["id_picking_detalle"]),
+                cantidad_reportada=float(qty),
+                transcript=st.session_state.get("rf_voice_short_transcript") or transcript,
+                confidence=confidence,
+            )
+            st.session_state.rf_voice_last_location_code = str(tarea.get("codigo_ubicacion") or "")
+            st.session_state.rf_voice_last_zone_code = str(tarea.get("codigo_zona") or "")
+            _reset_voice_state(clear_last_zone=False)
+            # Si encontró algo, se considera una tarea procesada. Si encontró cero,
+            # la tarea queda como corto y la lista avanza al siguiente pendiente.
+            st.session_state.rf_picking_done_session = done + 1
+            rf_clear_master_cache()
+            st.rerun()
+        # Si dijo otra cantidad de forma natural, el componente suele enviarla como CANTIDAD.
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if step == "ubicacion" and command in {"ESTOY_AQUI", "OK"}:
+        st.session_state.rf_voice_last_zone_code = str(tarea.get("codigo_zona") or "")
+        st.session_state.rf_voice_step = "material"
+        st.session_state.rf_voice_cancel_confirm = False
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if step == "material" and command == "OK":
+        st.session_state.rf_voice_same_location_intro = False
+        st.session_state.rf_voice_step = "cantidad"
+        st.session_state.rf_voice_cancel_confirm = False
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    if step == "cantidad" and command == "OK":
+        _confirm_current_picking_task(tarea, current, done, voice_event=event)
+
+    if step == "cantidad" and command == "TENGO_CORTO":
+        st.session_state.rf_voice_short_pending = True
+        st.session_state.rf_voice_short_task_id = int(tarea["id_picking_detalle"])
+        st.session_state.rf_voice_short_qty = None
+        st.session_state.rf_voice_short_transcript = transcript
+        reset_voice_autoplay(voice_key)
+        st.rerun()
+
+    st.session_state.rf_voice_presence_resume = False
+    st.warning("Comando no reconocido. Intenta nuevamente o di repítelo.")
+    reset_voice_autoplay(voice_key)
+    st.rerun()
+
+
+def _render_voice_picking_tareas() -> None:
+    id_picking = int(st.session_state.rf_picking_id)
+    tareas = rf_get_tareas_picking(id_picking)
+    total = int(st.session_state.get("rf_picking_total") or len(tareas))
+    done = int(st.session_state.get("rf_picking_done_session") or 0)
+
+    if tareas.empty:
+        st.session_state.rf_picking_mode = "voice_auditoria"
+        st.rerun()
+
+    tarea = tareas.iloc[0].to_dict()
+    current = min(done + 1, total if total > 0 else 1)
+
+    if st.session_state.get("rf_voice_task_key") != str(tarea["id_picking_detalle"]):
+        st.session_state.rf_voice_task_key = str(tarea["id_picking_detalle"])
+        previous_location = str(st.session_state.get("rf_voice_last_location_code") or "")
+        current_location = str(tarea.get("codigo_ubicacion") or "")
+        same_location = bool(previous_location and current_location and previous_location == current_location)
+        st.session_state.rf_voice_same_location_intro = same_location
+        # Si la tarea nueva está en la misma ubicación que la anterior, no volver a pedir
+        # confirmación de ubicación: se informa "en esta misma ubicación" y se pasa
+        # directamente al paso de material.
+        st.session_state.rf_voice_step = "material" if same_location else "ubicacion"
+        st.session_state.rf_voice_short_pending = False
+        st.session_state.rf_voice_short_qty = None
+        st.session_state.rf_voice_short_transcript = ""
+        st.session_state.rf_voice_cancel_confirm = False
+        st.session_state.rf_voice_presence_resume = False
+        st.session_state.rf_voice_greeting_done = bool(st.session_state.get("rf_voice_greeting_done", False))
+
+    step = str(st.session_state.get("rf_voice_step") or "ubicacion")
+    last_zone = str(st.session_state.get("rf_voice_last_zone_code") or "")
+    current_zone = str(tarea.get("codigo_zona") or "")
+    include_zone = step == "ubicacion" and current_zone != last_zone
+    greeting = not bool(st.session_state.get("rf_voice_greeting_done"))
+    cancel_confirm = bool(st.session_state.get("rf_voice_cancel_confirm"))
+    short_pending = bool(st.session_state.get("rf_voice_short_pending"))
+    short_qty = st.session_state.get("rf_voice_short_qty")
+    resume = bool(st.session_state.pop("rf_voice_presence_resume", False))
+    unrecognized = bool(st.session_state.get("rf_voice_unrecognized"))
+    same_location_intro = bool(st.session_state.get("rf_voice_same_location_intro"))
+
+    if unrecognized:
+        prompt = "Disculpa, no entendí."
+        greeting = False
+    else:
+        prompt = build_voice_instruction(
+            tarea,
+            current,
+            total,
+            step=step,
+            include_zone=include_zone,
+            greeting=greeting,
+            resume=resume,
+            cancel_confirm=cancel_confirm,
+            short_pending=short_pending,
+            short_qty=short_qty,
+            same_location=same_location_intro and step == "material",
+        )
+    if greeting:
+        st.session_state.rf_voice_greeting_done = True
+
+    _render_html_card(_task_card_html(tarea, current, total, _voice_step_label(step)))
     st.markdown(
         f"""
-        <div class="rf-task-main rf-task-compact">
-            <div class="rf-task-header">
-                <div class="rf-task-pk">{st.session_state.get('rf_picking_nro', '')}</div>
-                <div class="rf-task-counter">Tarea {current}/{total}</div>
-            </div>
-            <div class="rf-task-row">
-                <div>
-                    <div class="rf-task-big-label">Ubicación</div>
-                    <div class="rf-task-big-value rf-location-value">{tarea.get('codigo_ubicacion')}</div>
-                </div>
-                <div>
-                    <div class="rf-task-big-label">Cantidad</div>
-                    <div class="rf-task-big-value rf-qty-value">{float(tarea.get('cantidad_picking') or 0):,.2f} {tarea.get('codigo_unidad')}</div>
-                </div>
-            </div>
-            <div class="rf-task-big-label">Artículo</div>
-            <div class="rf-task-product">{tarea.get('sku')} · {tarea.get('nombre_producto')}</div>
-            <div class="rf-grid rf-grid-compact">
-                <div class="rf-field"><div class="rf-label">Zona</div><div class="rf-value">{tarea.get('codigo_zona')} - {tarea.get('nombre_zona')}</div></div>
-                <div class="rf-field"><div class="rf-label">Cuenta</div><div class="rf-value">{tarea.get('codigo_cuenta')}</div></div>
-                <div class="rf-field"><div class="rf-label">Solicitante</div><div class="rf-value">{tarea.get('solicitante') or '-'}</div></div>
-                <div class="rf-field"><div class="rf-label">Lote</div><div class="rf-value">{tarea.get('lote') or '-'}</div></div>
-            </div>
+        <div class="rf-voice-note">
+            <b>Comandos disponibles</b><br>{_voice_help(step, short_pending=short_pending, short_qty=short_qty, cancel_confirm=cancel_confirm)}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    col1, col2 = st.columns(2)
-    if col1.button("Confirmar", type="primary", use_container_width=True):
-        try:
-            confirmar_tarea_picking_rf(int(tarea["id_picking_detalle"]), current_user_id())
-            st.session_state.rf_picking_done_session = done + 1
-            rf_clear_master_cache()
-            st.rerun()
-        except Exception as exc:
-            st.error("No se pudo confirmar la tarea.")
-            with st.expander("Detalle técnico"):
-                st.code(str(exc))
-
-    if col2.button("Cancelar", use_container_width=True):
-        st.session_state.rf_cancel_picking_process = True
-
-    if st.session_state.get("rf_cancel_picking_process"):
-        _render_cancel_picking_dialog()
+    voice_key = _current_voice_key(tarea, step)
+    event = render_voice_assistant(
+        prompt,
+        key=voice_key,
+        auto_play=True,
+        auto_listen=True,
+        keepalive=True,
+        keepalive_ms=10000,
+        presence_mode=bool(st.session_state.get("rf_voice_waiting_presence")),
+        height=92,
+    )
+    event = consume_voice_event(event, f"rf_voice_processed_{voice_key}")
+    if event:
+        _handle_voice_command(event, tarea, current, total, done, prompt, voice_key)
 
 
 def _render_cancel_picking_dialog() -> None:
@@ -724,7 +1170,6 @@ def _render_cancel_picking_dialog() -> None:
             if col_no.button("No", use_container_width=True):
                 st.session_state.rf_cancel_picking_process = False
                 st.rerun()
-
         _dialog()
     else:
         st.warning("¿Desea cancelar el proceso?")
@@ -736,19 +1181,50 @@ def _render_cancel_picking_dialog() -> None:
             st.rerun()
 
 
-def _render_picking_auditoria() -> None:
+def _render_picking_auditoria(*, voice: bool = False) -> None:
     id_picking = int(st.session_state.rf_picking_id)
     nro = st.session_state.get("rf_picking_nro", "")
     st.subheader(f"Auditoría {nro}")
     auditoria = rf_get_auditoria_picking(id_picking)
     if auditoria.empty:
         st.warning("No hay tareas completadas para auditar.")
+        rows = []
     else:
         st.dataframe(auditoria, use_container_width=True, hide_index=True)
+        rows = auditoria.to_dict("records")
 
-    if st.button("Confirmar auditoría", type="primary", use_container_width=True):
-        _back_to_picking_list()
-
+    if voice:
+        audit_key = f"rf_voice_audit_{id_picking}"
+        audit_prompt = build_audit_prompt(rows)
+        voice_event = render_voice_assistant(
+            audit_prompt,
+            key=audit_key,
+            auto_play=True,
+            auto_listen=True,
+            keepalive=True,
+            keepalive_ms=10000,
+            height=92,
+        )
+        voice_event = consume_voice_event(voice_event, f"rf_voice_processed_{audit_key}")
+        if voice_event:
+            command = str(voice_event.get("command") or "").upper()
+            log_voice_event(
+                id_usuario=current_user_id(),
+                id_picking=id_picking,
+                evento="AUDITORIA_COMANDO_VOZ",
+                texto_emitido=audit_prompt,
+                texto_reconocido=voice_event.get("transcript"),
+                comando_normalizado=command,
+                confianza=voice_event.get("confidence"),
+            )
+            if command == "CONFIRMAR_AUDITORIA":
+                _back_to_picking_list(farewell=f"Picking {nro} finalizado. Buen trabajo.")
+            elif command == "REPETIR":
+                reset_voice_autoplay(audit_key)
+                st.rerun()
+    else:
+        if st.button("Confirmar auditoría", type="primary", use_container_width=True):
+            _back_to_picking_list()
 
 # ---------------------------------------------------------------------------
 # Transferencia RF
@@ -994,6 +1470,8 @@ def _rf_main() -> None:
         render_ingresos()
     elif page == "Picking":
         render_picking()
+    elif page == "Voice Picking":
+        render_voice_picking()
     elif page == "Transferencia":
         render_transferencia()
     elif page == "Stock":

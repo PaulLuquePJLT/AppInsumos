@@ -1,0 +1,335 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<style>
+  :root {
+    --navy:#142534;
+    --teal-dark:#0E5663;
+    --teal:#18A999;
+    --border:#DCE7EA;
+    --muted:#6B7A86;
+    --danger:#D64545;
+  }
+  html, body { margin:0; padding:0; background:transparent; font-family: Arial, sans-serif; color:var(--navy); overflow:hidden; }
+  .voice-wrap {
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.96);
+    border-radius:13px;
+    padding:7px;
+    box-sizing:border-box;
+    width:100%;
+  }
+  .voice-top { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .voice-title { font-size:10px; font-weight:800; color:var(--teal-dark); letter-spacing:.02em; text-transform:uppercase; }
+  .voice-status { font-size:9px; color:var(--muted); text-align:right; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .voice-status.ok { color:#047857; font-weight:700; }
+  .voice-status.err { color:var(--danger); font-weight:700; }
+  .voice-buttons { display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; margin-top:5px; }
+  .voice-buttons.hidden { display:none; }
+  button {
+    border:0; border-radius:10px; min-height:26px; padding:4px 4px; font-size:10px; font-weight:800;
+    color:white; background:linear-gradient(135deg,var(--teal-dark),var(--teal)); cursor:pointer;
+  }
+  button.secondary { background:#eef7f6; color:var(--teal-dark); border:1px solid rgba(14,86,99,.16); }
+  button.danger { background:#fff1f1; color:#991b1b; border:1px solid rgba(214,69,69,.22); }
+  .transcript { margin-top:5px; padding:5px 7px; border-radius:10px; background:#F8FBFC; color:var(--navy); font-size:9px; line-height:1.25; min-height:14px; }
+  .hint { margin-top:3px; color:var(--muted); font-size:8.5px; line-height:1.2; }
+  .pulse { display:inline-block; width:6px; height:6px; border-radius:999px; background:var(--teal); margin-right:4px; box-shadow:0 0 0 0 rgba(24,169,153,.65); animation:pulse 1.3s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(24,169,153,.65)} 70%{box-shadow:0 0 0 8px rgba(24,169,153,0)} 100%{box-shadow:0 0 0 0 rgba(24,169,153,0)} }
+</style>
+</head>
+<body>
+<div class="voice-wrap">
+  <div class="voice-top">
+    <div class="voice-title">Voice Picking</div>
+    <div id="status" class="voice-status">Listo</div>
+  </div>
+  <div id="buttons" class="voice-buttons hidden">
+    <button id="speakBtn" type="button">🔊 Repetir</button>
+    <button id="listenBtn" type="button" class="secondary">🎙️ Hablar</button>
+    <button id="stopBtn" type="button" class="danger">■ Parar</button>
+  </div>
+  <div id="transcript" class="transcript">Esperando instrucción...</div>
+  <div id="hint" class="hint">Micrófono activo para comandos de voz.</div>
+</div>
+<script>
+let args = {};
+let renderedOnce = false;
+let lastAutoPlayNonce = null;
+let lastListenNonce = null;
+let recognition = null;
+let listening = false;
+let speaking = false;
+let hadResult = false;
+let lastCommandTs = 0;
+let keepaliveTimer = null;
+
+const statusEl = document.getElementById('status');
+const transcriptEl = document.getElementById('transcript');
+const speakBtn = document.getElementById('speakBtn');
+const listenBtn = document.getElementById('listenBtn');
+const stopBtn = document.getElementById('stopBtn');
+const buttonsEl = document.getElementById('buttons');
+const hintEl = document.getElementById('hint');
+
+function sendMessage(type, data) { window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, '*'); }
+function componentReady() { sendMessage('streamlit:componentReady', { apiVersion: 1 }); }
+function setFrameHeight(height) { sendMessage('streamlit:setFrameHeight', { height }); }
+function setComponentValue(value) { sendMessage('streamlit:setComponentValue', { value, dataType: 'json' }); }
+function setStatus(text, cls='') { statusEl.innerHTML = text; statusEl.className = 'voice-status ' + cls; }
+function setTranscript(text) { transcriptEl.textContent = text || ''; }
+function clearKeepalive() { if (keepaliveTimer) { clearTimeout(keepaliveTimer); keepaliveTimer = null; } }
+function playListenCue(callback) {
+  const done = () => { if (typeof callback === 'function') callback(); };
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) { done(); return; }
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = Number(args.cue_frequency || 880);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(Number(args.cue_volume || 0.34), ctx.currentTime + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.24);
+    setTimeout(() => { try { ctx.close(); } catch(e) {} done(); }, 255);
+  } catch(e) {
+    done();
+  }
+}
+
+function normalize(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,;:!¿?¡]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function parseQuantity(text) {
+  const t = normalize(text).replace(',', '.');
+  const num = t.match(/\b\d+(?:\.\d)?\d*\b/);
+  if (num) return parseFloat(num[0]);
+  const words = {
+    'cero':0,'uno':1,'una':1,'un':1,'dos':2,'tres':3,'cuatro':4,'cinco':5,'seis':6,'siete':7,'ocho':8,'nueve':9,'diez':10,
+    'once':11,'doce':12,'trece':13,'catorce':14,'quince':15,'dieciseis':16,'diecisiete':17,'dieciocho':18,'diecinueve':19,
+    'veinte':20,'treinta':30,'cuarenta':40,'cincuenta':50,'sesenta':60,'setenta':70,'ochenta':80,'noventa':90,'cien':100
+  };
+  if (Object.prototype.hasOwnProperty.call(words, t)) return words[t];
+  const tokens = t.split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    if (Object.prototype.hasOwnProperty.call(words, token)) return words[token];
+  }
+  let total = 0;
+  let found = false;
+  for (const token of tokens) {
+    if (token === 'y') continue;
+    if (Object.prototype.hasOwnProperty.call(words, token)) {
+      total += words[token];
+      found = true;
+    }
+  }
+  return found ? total : null;
+}
+
+function commandFromText(text) {
+  const t = normalize(text);
+  if (!t) return '';
+  if (args.presence_mode) return 'PRESENCIA';
+  if (/(confirmar auditoria|cerrar picking|finalizar auditoria|terminar auditoria|confirmo auditoria)/.test(t)) return 'CONFIRMAR_AUDITORIA';
+  if (/(confirmar corto|confirmo corto|aceptar corto|guardar corto)/.test(t)) return 'CONFIRMAR_CORTO';
+  if (/(estoy aqui|estoy en ubicacion|ya llegue|llegue|aqui estoy|estoy ahi|ya estoy)/.test(t)) return 'ESTOY_AQUI';
+  if (/(repite ubicacion|repetir ubicacion|repita ubicacion|ubicacion otra vez)/.test(t)) return 'REPETIR_UBICACION';
+  if (/(repite codigo|repetir codigo|repita codigo|codigo otra vez|repite material|repetir material)/.test(t)) return 'REPETIR_CODIGO';
+  if (/(repite cantidad|repetir cantidad|repita cantidad|cantidad otra vez)/.test(t)) return 'REPETIR_CANTIDAD';
+  if (/(cancelar picking|cancela picking|cancelar el picking|detener picking)/.test(t)) return 'CANCELAR_PICKING';
+  if (/(tengo corto|hay corto|corto|falta|faltante|no hay|no encuentro|incompleto|diferencia)/.test(t)) return 'TENGO_CORTO';
+  if (/(ok|okay|correcto|conforme|esta bien|de acuerdo|listo|hecho|si|sí)/.test(t)) return 'OK';
+  if (/(repetir|repite|otra vez|de nuevo|repitelo|repítelo|repita)/.test(t)) return 'REPETIR';
+  if (/(ayuda|comandos|opciones)/.test(t)) return 'AYUDA';
+  const qty = parseQuantity(t);
+  if (qty !== null) return 'CANTIDAD';
+  return 'NO_RECONOCIDO';
+}
+function stopAll() {
+  clearKeepalive();
+  try { if (recognition) recognition.stop(); } catch(e) {}
+  try { window.speechSynthesis.cancel(); } catch(e) {}
+  listening = false;
+  speaking = false;
+  setStatus('Detenido');
+}
+function chooseVoice() {
+  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  if (!voices || !voices.length) return null;
+  const lang = String(args.lang || 'es-PE').toLowerCase();
+  return voices.find(v => String(v.lang || '').toLowerCase() === lang)
+      || voices.find(v => String(v.lang || '').toLowerCase().startsWith('es'))
+      || voices[0];
+}
+function speakText(text, afterListen=false, presence=false) {
+  if (!text || !('speechSynthesis' in window)) {
+    setStatus('Síntesis no disponible', 'err');
+    return;
+  }
+  clearKeepalive();
+  try { window.speechSynthesis.cancel(); } catch(e) {}
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = args.lang || 'es-PE';
+  utter.rate = Number(args.rate || 1.38);
+  utter.pitch = Number(args.pitch || 1.0);
+  utter.volume = Number(args.volume || 1.0);
+  const voice = chooseVoice();
+  if (voice) utter.voice = voice;
+  utter.onstart = () => { speaking = true; setStatus('Hablando...'); };
+  utter.onend = () => {
+    speaking = false;
+    setStatus(afterListen ? 'Preparando escucha...' : 'Listo');
+    setComponentValue({ event:'played', ts: Date.now(), task_key: args.task_key || '' });
+    if (afterListen) {
+      setTimeout(() => playListenCue(() => startListening(presence)), Number(args.listen_delay_ms || 160));
+    } else {
+      scheduleKeepalive();
+    }
+  };
+  utter.onerror = () => { speaking = false; setStatus('Error de audio', 'err'); scheduleKeepalive(); };
+  window.speechSynthesis.speak(utter);
+}
+function speakInstruction(autoListen=false) {
+  speakText(String(args.instruction || '').trim(), autoListen, Boolean(args.presence_mode));
+}
+function makeRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  const rec = new SpeechRecognition();
+  rec.lang = args.lang || 'es-PE';
+  rec.interimResults = false;
+  rec.maxAlternatives = 3;
+  rec.continuous = false;
+  return rec;
+}
+function startListening(presence=false) {
+  clearKeepalive();
+  const rec = makeRecognition();
+  if (!rec) {
+    setStatus('Reconocimiento no disponible en Chrome', 'err');
+    setComponentValue({ event:'speech_not_supported', ts: Date.now(), task_key: args.task_key || '' });
+    return;
+  }
+  try { if (recognition) recognition.stop(); } catch(e) {}
+  recognition = rec;
+  listening = true;
+  hadResult = false;
+  setStatus('<span class="pulse"></span>Escuchando...');
+  setTranscript(presence ? 'Responde para continuar.' : 'Escuchando...');
+
+  // Si listen_timeout_ms es 0 o menor, no se corta la escucha por timeout.
+  // El navegador puede finalizar reconocimiento por silencio; en ese caso se reinicia.
+  const timeoutMs = Number(args.listen_timeout_ms || 0);
+  let timeout = null;
+  if (timeoutMs > 0) {
+    timeout = setTimeout(() => { try { rec.stop(); } catch(e) {} }, timeoutMs);
+  }
+
+  // Preguntar ¿estás ahí? cada cierto tiempo si no hubo respuesta.
+  if (args.keepalive) {
+    keepaliveTimer = setTimeout(() => {
+      try { rec.stop(); } catch(e) {}
+      listening = false;
+      speakText(String(args.keepalive_prompt || '¿Estás ahí?'), true, true);
+    }, Number(args.keepalive_ms || 10000));
+  }
+
+  rec.onresult = (event) => {
+    if (timeout) clearTimeout(timeout);
+    clearKeepalive();
+    hadResult = true;
+    listening = false;
+    const result = event.results && event.results[0] ? event.results[0] : null;
+    let transcript = '';
+    let confidence = 0;
+    if (result && result[0]) {
+      transcript = result[0].transcript || '';
+      confidence = result[0].confidence || 0;
+    }
+    const command = presence ? 'PRESENCIA' : commandFromText(transcript);
+    const qty = parseQuantity(transcript);
+    const now = Date.now();
+    if (now - lastCommandTs < 250) return;
+    lastCommandTs = now;
+    setTranscript('Reconocido: ' + transcript + ' → ' + command);
+    setStatus(command === 'NO_RECONOCIDO' ? 'No reconocido' : 'Comando reconocido', command === 'NO_RECONOCIDO' ? 'err' : 'ok');
+    setComponentValue({
+      event:'command', transcript, command, quantity: qty, confidence, ts: now, task_key: args.task_key || ''
+    });
+  };
+  rec.onerror = (e) => {
+    if (timeout) clearTimeout(timeout);
+    const error = e.error || '';
+    listening = false;
+    // En Chrome, no-speech/audio-capture/aborted pueden ocurrir por silencio o por reinicio.
+    // Mantener el flujo vivo hasta recibir una respuesta o hasta que el usuario cancele.
+    if (['no-speech', 'aborted'].includes(error)) {
+      if (!hadResult) setTimeout(() => startListening(presence), 250);
+      return;
+    }
+    setStatus('Micrófono: ' + error, 'err');
+    setComponentValue({ event:'recognition_error', error, ts: Date.now(), task_key: args.task_key || '' });
+  };
+  rec.onend = () => {
+    if (timeout) clearTimeout(timeout);
+    const shouldRestart = listening && !hadResult;
+    listening = false;
+    if (shouldRestart) {
+      setStatus('<span class="pulse"></span>Escuchando...');
+      setTimeout(() => startListening(presence), 250);
+    }
+  };
+  try { rec.start(); } catch(e) { setStatus('No se pudo escuchar', 'err'); scheduleKeepalive(); }
+}
+function scheduleKeepalive() {
+  clearKeepalive();
+  if (!args.keepalive) return;
+  keepaliveTimer = setTimeout(() => {
+    const prompt = String(args.keepalive_prompt || '¿Estás ahí?');
+    try { if (recognition) recognition.stop(); } catch(e) {}
+    listening = false;
+    speakText(prompt, true, true);
+  }, Number(args.keepalive_ms || 10000));
+}
+
+speakBtn.onclick = () => speakInstruction(false);
+listenBtn.onclick = () => startListening(false);
+stopBtn.onclick = () => stopAll();
+
+window.addEventListener('message', (event) => {
+  if (!event.data || event.data.type !== 'streamlit:render') return;
+  args = event.data.args || {};
+  setFrameHeight(Number(args.height || 92));
+  buttonsEl.className = args.show_controls ? 'voice-buttons' : 'voice-buttons hidden';
+  hintEl.textContent = args.hint || 'Escucha la instrucción y responde.';
+  if (!renderedOnce) { componentReady(); renderedOnce = true; }
+  if (!('speechSynthesis' in window)) setStatus('Voz no disponible', 'err');
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) setTranscript('Reconocimiento de voz no disponible. Usa Chrome actualizado.');
+  if (args.auto_play && args.auto_play_nonce !== lastAutoPlayNonce) {
+    lastAutoPlayNonce = args.auto_play_nonce;
+    clearKeepalive();
+    setTimeout(() => speakInstruction(Boolean(args.auto_listen)), Number(args.auto_delay_ms || 160));
+  }
+  if (args.listen_nonce && args.listen_nonce !== lastListenNonce) {
+    lastListenNonce = args.listen_nonce;
+    setTimeout(() => startListening(Boolean(args.presence_mode)), 100);
+  }
+});
+componentReady();
+setFrameHeight(92);
+</script>
+</body>
+</html>
